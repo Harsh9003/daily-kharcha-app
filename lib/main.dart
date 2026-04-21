@@ -6,6 +6,9 @@ import 'services/pdf_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
+
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,14 +39,352 @@ class _DailyKharchaAppState extends State<DailyKharchaApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: isDarkMode ? ThemeData.dark() : ThemeData.light(),
-      home: MainScreen(
+      home: AuthGate(
         isDarkMode: isDarkMode,
         onThemeToggle: toggleTheme,
       ),
     );
   }
 }
+class AuthGate extends StatelessWidget {
+  final bool isDarkMode;
+  final VoidCallback onThemeToggle;
 
+  const AuthGate({
+    super.key,
+    required this.isDarkMode,
+    required this.onThemeToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.hasData) {
+          return MainScreen(
+            isDarkMode: isDarkMode,
+            onThemeToggle: onThemeToggle,
+          );
+        }
+
+        return LoginScreen();
+      },
+    );
+  }
+}
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _slideAnimation;
+
+  Future<void> signInWithGoogle() async {
+    try {
+      final googleProvider = GoogleAuthProvider();
+      await FirebaseAuth.instance.signInWithPopup(googleProvider);
+    } catch (e) {
+      debugPrint("❌ Google Sign-In Error: $e");
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOut,
+    );
+
+    _slideAnimation = Tween<double>(
+      begin: 30,
+      end: 0,
+    ).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Widget _featureTile(IconData icon, String text) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.08),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.10),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              color: Colors.greenAccent,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF0F0F1B),
+              Color(0xFF1E1E2C),
+              Color(0xFF2C2C54),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: AnimatedBuilder(
+              animation: _slideAnimation,
+              builder: (context, child) {
+                return Transform.translate(
+                  offset: Offset(0, _slideAnimation.value),
+                  child: child,
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Spacer(),
+
+                    Center(
+                      child: Container(
+                        width: 92,
+                        height: 92,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: const LinearGradient(
+                            colors: [
+                              Color(0xFF40407A),
+                              Color(0xFF2C2C54),
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.22),
+                              blurRadius: 24,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.account_balance_wallet_rounded,
+                          size: 42,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 28),
+
+                    const Center(
+                      child: Text(
+                        "Daily Kharcha",
+                        style: TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    const Center(
+                      child: Text(
+                        "Track smarter. Save better. Grow daily.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: Colors.white70,
+                          height: 1.5,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.greenAccent.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(30),
+                          border: Border.all(
+                            color: Colors.greenAccent.withOpacity(0.25),
+                          ),
+                        ),
+                        child: const Text(
+                          "Your expenses. Your control.",
+                          style: TextStyle(
+                            color: Colors.greenAccent,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 32),
+
+                    _featureTile(
+                      Icons.pie_chart_rounded,
+                      "Beautiful reports with daily, weekly and monthly insights",
+                    ),
+                    _featureTile(
+                      Icons.cloud_done_rounded,
+                      "Secure Firebase sync so your data stays safe across devices",
+                    ),
+                    _featureTile(
+                      Icons.picture_as_pdf_rounded,
+                      "Export premium PDF reports and share your progress anytime",
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    GestureDetector(
+                      onTap: () async {
+                        await signInWithGoogle();
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.18),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(
+                              Icons.login_rounded,
+                              color: Colors.black87,
+                              size: 22,
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              "Sign in with Google",
+                              style: TextStyle(
+                                color: Colors.black87,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    const Center(
+                      child: Text(
+                        "Login once and stay securely signed in.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ),
+
+                    const Spacer(),
+
+                    const Center(
+                      child: Text(
+                        "By continuing, you unlock your personal cloud-synced expense dashboard.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white38,
+                          fontSize: 11.5,
+                          height: 1.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 class MainScreen extends StatefulWidget {
   final bool isDarkMode;
   final VoidCallback onThemeToggle;
@@ -59,7 +400,10 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
+
+  User? currentUser;
   int currentIndex = 0;
+  String? get userId => FirebaseAuth.instance.currentUser?.uid;
 
   List<Map<String, dynamic>> transactions = [];
   List<String> categories = ["Food", "Travel", "Shopping", "Petrol"];
@@ -89,8 +433,16 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _saveTransactionToFirestore(Map<String, dynamic> tx) async {
     try {
-      final docRef =
-          await FirebaseFirestore.instance.collection('transactions').add({
+      if (userId == null) {
+        debugPrint("❌ No logged in user");
+        return;
+      }
+
+      final docRef = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('transactions')
+          .add({
         'amount': tx['amount'],
         'category': tx['category'],
         'date': (tx['date'] as DateTime).toIso8601String(),
@@ -98,9 +450,9 @@ class _MainScreenState extends State<MainScreen> {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      tx['id'] = docRef.id; // 🔥 IMPORTANT
+      tx['id'] = docRef.id;
 
-      debugPrint("🔥 Saved to Firestore");
+      debugPrint("🔥 Saved to Firestore for user: $userId");
     } catch (e) {
       debugPrint("❌ Firestore Error: $e");
     }
@@ -108,6 +460,11 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> deleteTransaction(Map<String, dynamic> tx) async {
     try {
+      if (userId == null) {
+        debugPrint("❌ No logged in user");
+        return;
+      }
+
       final docId = tx['id'];
 
       if (docId == null || docId.toString().isEmpty) {
@@ -116,6 +473,8 @@ class _MainScreenState extends State<MainScreen> {
       }
 
       await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
           .collection('transactions')
           .doc(docId)
           .delete();
@@ -125,7 +484,8 @@ class _MainScreenState extends State<MainScreen> {
       });
 
       await saveData();
-      debugPrint("🗑️ Deleted from Firestore: $docId");
+
+      debugPrint("🗑️ Deleted for user: $userId");
     } catch (e) {
       debugPrint("❌ Delete Error: $e");
     }
@@ -134,9 +494,36 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    currentUser = FirebaseAuth.instance.currentUser;
     loadData();
   }
 
+
+  Future<void> signInWithGoogle() async {
+    try {
+      final googleProvider = GoogleAuthProvider();
+
+      if (kIsWeb) {
+        final userCredential =
+            await FirebaseAuth.instance.signInWithPopup(googleProvider);
+
+        setState(() {
+          currentUser = userCredential.user;
+        });
+      } else {
+        // mobile ke liye baad me google_sign_in use karenge
+        debugPrint("Google Sign-In mobile flow pending");
+      }
+
+      debugPrint("✅ Signed in: ${currentUser?.displayName}");
+    } catch (e) {
+      debugPrint("❌ Google Sign-In Error: $e");
+    }
+  }
+
+  Future<void> signOutUser() async {
+  await FirebaseAuth.instance.signOut();
+}
 
   Widget _exportActionTile({
     required IconData icon,
@@ -277,8 +664,8 @@ class _MainScreenState extends State<MainScreen> {
                     selectedMonth: selectedMonth,
                     dailyLimit: dailyLimit,
                     monthlyLimit: monthlyLimit,
-                    userName: "Daily Kharcha User",
-                    developerName: "Harshender Singh",
+                    userName: currentUser?.displayName ?? "Daily Kharcha User",
+                    // developerName: "Harshender Singh",
                   );
                 },
               ),
@@ -291,22 +678,34 @@ class _MainScreenState extends State<MainScreen> {
 
 
   Future<void> _loadTransactionsFromFirestore() async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('transactions')
-        .orderBy('createdAt', descending: true)
-        .get();
+    try {
+      if (userId == null) {
+        transactions = [];
+        return;
+      }
 
-    transactions = snapshot.docs.map((doc) {
-      final data = doc.data();
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('transactions')
+          .orderBy('createdAt', descending: true)
+          .get();
 
-      return {
-        'id': doc.id,
-        'amount': (data['amount'] as num).toDouble(),
-        'category': data['category'],
-        'date': DateTime.parse(data['date']),
-        'mode': data['mode'] ?? 'Cash',
-      };
-    }).toList();
+      transactions = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'amount': (data['amount'] as num).toDouble(),
+          'category': data['category'],
+          'date': DateTime.parse(data['date']),
+          'mode': data['mode'] ?? 'Cash',
+        };
+      }).toList();
+
+      debugPrint("✅ Loaded ${transactions.length} transactions for user: $userId");
+    } catch (e) {
+      debugPrint("❌ Load Error: $e");
+    }
   }
 
   Future<void> saveData() async {
@@ -341,6 +740,7 @@ class _MainScreenState extends State<MainScreen> {
     }
 
     Future<void> loadData() async {
+      transactions = []; //Temp
     try {
       await _loadTransactionsFromFirestore();
     } catch (e) {
@@ -1505,11 +1905,29 @@ class _MainScreenState extends State<MainScreen> {
                 CircleAvatar(
                   radius: 34,
                   backgroundColor: Colors.white12,
-                  child: Icon(Icons.person, size: 34, color: Colors.white),
+                  backgroundImage: currentUser != null &&
+                          currentUser!.photoURL != null &&
+                          currentUser!.photoURL!.isNotEmpty
+                      ? NetworkImage(currentUser!.photoURL!)
+                      : null,
+                  child: currentUser == null ||
+                          currentUser!.photoURL == null ||
+                          currentUser!.photoURL!.isEmpty
+                      ? Text(
+                          (currentUser?.displayName?.isNotEmpty ?? false)
+                              ? currentUser!.displayName![0].toUpperCase()
+                              : "U",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        )
+                      : null,
                 ),
                 SizedBox(height: 12),
                 Text(
-                  "Daily Kharcha User",
+                  currentUser?.displayName ?? "Daily Kharcha User",
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -1518,12 +1936,46 @@ class _MainScreenState extends State<MainScreen> {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  "Track your expenses smartly",
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                  currentUser?.email ?? "Track your expenses smartly",
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ),
           ),
+
+          SizedBox(height: 16),
+
+          GestureDetector(
+            onTap: () async {
+              await signOutUser();
+            },
+            child: Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Color(0xFF2C2C54),
+                    Color(0xFF40407A),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Text(
+                  "Logout",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
           SizedBox(height: 18),
           Text(
             "Settings",
