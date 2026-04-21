@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'services/pdf_service.dart';
 
 void main() {
   runApp(DailyKharchaApp());
@@ -79,6 +80,159 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
     loadData();
   }
+
+
+  Widget _exportActionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFF40407A).withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: const Color(0xFF2C2C54),
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: Colors.black45,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // export dialog
+  Future<void> openExportReportDialog() async {
+    final reportList = getCurrentReportList();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 46,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Export Report',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${reportView} Report',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Colors.black54,
+                ),
+              ),
+              const SizedBox(height: 18),
+              _exportActionTile(
+                icon: Icons.picture_as_pdf_rounded,
+                title: 'Export PDF',
+                subtitle: 'Open print / save PDF dialog',
+                onTap: () async {
+                  Navigator.pop(context);
+                  await PdfService.exportPdf(
+                    reportList: reportList,
+                    reportView: reportView,
+                    selectedDate: selectedDate,
+                    selectedMonth: selectedMonth,
+                    dailyLimit: dailyLimit,
+                    monthlyLimit: monthlyLimit,
+                    userName: "Daily Kharcha User",
+                    developerName: "Harshender Singh",
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
+              _exportActionTile(
+                icon: Icons.share_rounded,
+                title: 'Share Report',
+                subtitle: 'Share the PDF report instantly',
+                onTap: () async {
+                  Navigator.pop(context);
+                  await PdfService.sharePdf(
+                    reportList: reportList,
+                    reportView: reportView,
+                    selectedDate: selectedDate,
+                    selectedMonth: selectedMonth,
+                    dailyLimit: dailyLimit,
+                    monthlyLimit: monthlyLimit,
+                    userName: "Daily Kharcha User",
+                    developerName: "Harshender Singh",
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
 
   Future<void> saveData() async {
       final prefs = await SharedPreferences.getInstance();
@@ -709,28 +863,50 @@ class _MainScreenState extends State<MainScreen> {
                   children: [
                     Text(
                       "Expense Report",
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                     ),
-                    GestureDetector(
-                      onTap: () => openSmartInsightsDialog(),
-                      child: Container(
-                        padding: EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white10,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: Colors.white12),
+
+                    Row(
+                      children: [
+                        // ⭐ Smart Insights
+                        GestureDetector(
+                          onTap: () => openSmartInsightsDialog(),
+                          child: Container(
+                            padding: EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white10,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.white12),
+                            ),
+                            child: Icon(
+                              Icons.auto_awesome_rounded,
+                              color: Colors.amberAccent,
+                              size: 22,
+                            ),
+                          ),
                         ),
-                        child: Icon(
-                          Icons.auto_awesome_rounded,
-                          color: Colors.amberAccent,
-                          size: 22,
+
+                        SizedBox(width: 10),
+
+                        // 📤 EXPORT BUTTON
+                        GestureDetector(
+                          onTap: () => openExportReportDialog(),
+                          child: Container(
+                            padding: EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white10,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.white12),
+                            ),
+                            child: Icon(
+                              Icons.ios_share_rounded,
+                              color: Colors.greenAccent,
+                              size: 22,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
+                      ],
+                    )
                   ],
                 ),
                 SizedBox(height: 14),

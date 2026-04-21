@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+import 'services/pdf_service.dart';
 
 void main() {
   runApp(DailyKharchaApp());
@@ -39,7 +39,8 @@ class MainScreen extends StatefulWidget {
   final bool isDarkMode;
   final VoidCallback onThemeToggle;
 
-  MainScreen({
+  const MainScreen({
+    super.key,
     required this.isDarkMode,
     required this.onThemeToggle,
   });
@@ -47,11 +48,19 @@ class MainScreen extends StatefulWidget {
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
+
 class _MainScreenState extends State<MainScreen> {
   int currentIndex = 0;
 
   List<Map<String, dynamic>> transactions = [];
   List<String> categories = ["Food", "Travel", "Shopping", "Petrol"];
+
+  Map<String, Color> categoryColors = {
+    "Food": Colors.orange,
+    "Travel": Colors.blue,
+    "Shopping": Colors.purple,
+    "Petrol": Colors.red,
+  };
 
   String viewMode = "Monthly";
   DateTime selectedDate = DateTime.now();
@@ -66,55 +75,197 @@ class _MainScreenState extends State<MainScreen> {
   double dailyLimit = 0;
   double monthlyLimit = 0;
 
-  bool isDarkMode = true;
-  Color _getColor(String category) {
-    switch (category.toLowerCase()) {
-      case "food":
-        return Colors.orange;
-      case "travel":
-        return Colors.blue;
-      case "shopping":
-        return Colors.purple;
-      case "petrol":
-        return Colors.red;
-      default:
-        return Colors.teal; // default color
-    }
-  }
-
   @override
   void initState() {
     super.initState();
     loadData();
   }
 
-  Future<void> saveData() async {
-    final prefs = await SharedPreferences.getInstance();
 
-    final encodedTransactions = transactions.map((tx) {
-      return {
-        'amount': tx['amount'],
-        'category': tx['category'],
-        'date': (tx['date'] as DateTime).toIso8601String(),
-        'mode': tx['mode'],
-      };
-    }).toList();
-
-    await prefs.setString('transactions', jsonEncode(encodedTransactions));
-    await prefs.setStringList('categories', categories);
-    await prefs.setString('viewMode', viewMode);
-    await prefs.setInt('selectedMonth', selectedMonth);
-    await prefs.setString('selectedDayType', selectedDayType);
-    await prefs.setDouble('dailyLimit', dailyLimit);
-    await prefs.setDouble('monthlyLimit', monthlyLimit);
-    await prefs.setString('reportView', reportView);
-    await prefs.setString('reportChartType', reportChartType);
-    await prefs.setString('selectedDate', selectedDate.toIso8601String());
-    await prefs.setInt('selectedWeekIndex', selectedWeekIndex);
-    await prefs.setBool('showPercentage', showPercentage);
+  Widget _exportActionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFF40407A).withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: const Color(0xFF2C2C54),
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: Colors.black45,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
-  Future<void> loadData() async {
+  // export dialog
+  Future<void> openExportReportDialog() async {
+    final reportList = getCurrentReportList();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 46,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Export Report',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${reportView} Report',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Colors.black54,
+                ),
+              ),
+              const SizedBox(height: 18),
+              _exportActionTile(
+                icon: Icons.picture_as_pdf_rounded,
+                title: 'Export PDF',
+                subtitle: 'Open print / save PDF dialog',
+                onTap: () async {
+                  Navigator.pop(context);
+                  await PdfService.exportPdf(
+                    reportList: reportList,
+                    reportView: reportView,
+                    selectedDate: selectedDate,
+                    selectedMonth: selectedMonth,
+                    dailyLimit: dailyLimit,
+                    monthlyLimit: monthlyLimit,
+                    userName: "Daily Kharcha User",
+                    developerName: "Harshender Singh",
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
+              _exportActionTile(
+                icon: Icons.share_rounded,
+                title: 'Share Report',
+                subtitle: 'Share the PDF report instantly',
+                onTap: () async {
+                  Navigator.pop(context);
+                  await PdfService.sharePdf(
+                    reportList: reportList,
+                    reportView: reportView,
+                    selectedDate: selectedDate,
+                    selectedMonth: selectedMonth,
+                    dailyLimit: dailyLimit,
+                    monthlyLimit: monthlyLimit,
+                    userName: "Daily Kharcha User",
+                    developerName: "Harshender Singh",
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+
+  Future<void> saveData() async {
+      final prefs = await SharedPreferences.getInstance();
+
+      final encodedTransactions = transactions.map((tx) {
+        return {
+          'amount': tx['amount'],
+          'category': tx['category'],
+          'date': (tx['date'] as DateTime).toIso8601String(),
+          'mode': tx['mode'],
+        };
+      }).toList();
+
+      final encodedCategoryColors = categoryColors.map(
+        (key, value) => MapEntry(key, value.value),
+      );
+
+      await prefs.setString('transactions', jsonEncode(encodedTransactions));
+      await prefs.setStringList('categories', categories);
+      await prefs.setString('viewMode', viewMode);
+      await prefs.setInt('selectedMonth', selectedMonth);
+      await prefs.setString('selectedDayType', selectedDayType);
+      await prefs.setDouble('dailyLimit', dailyLimit);
+      await prefs.setDouble('monthlyLimit', monthlyLimit);
+      await prefs.setString('reportView', reportView);
+      await prefs.setString('reportChartType', reportChartType);
+      await prefs.setString('selectedDate', selectedDate.toIso8601String());
+      await prefs.setInt('selectedWeekIndex', selectedWeekIndex);
+      await prefs.setBool('showPercentage', showPercentage);
+      await prefs.setString('categoryColors', jsonEncode(encodedCategoryColors));
+    }
+
+    Future<void> loadData() async {
     final prefs = await SharedPreferences.getInstance();
 
     final txString = prefs.getString('transactions');
@@ -135,6 +286,21 @@ class _MainScreenState extends State<MainScreen> {
       categories = savedCategories;
     }
 
+    final savedCategoryColors = prefs.getString('categoryColors');
+    if (savedCategoryColors != null && savedCategoryColors.isNotEmpty) {
+      final decoded = jsonDecode(savedCategoryColors) as Map<String, dynamic>;
+      categoryColors = decoded.map(
+        (key, value) => MapEntry(key, Color(value as int)),
+      );
+    } else {
+      categoryColors = {
+        "Food": Colors.orange,
+        "Travel": Colors.blue,
+        "Shopping": Colors.purple,
+        "Petrol": Colors.red,
+      };
+    }
+
     viewMode = prefs.getString('viewMode') ?? viewMode;
     selectedMonth = prefs.getInt('selectedMonth') ?? selectedMonth;
     selectedDayType = prefs.getString('selectedDayType') ?? selectedDayType;
@@ -150,10 +316,13 @@ class _MainScreenState extends State<MainScreen> {
       selectedDate = DateTime.parse(savedDate);
     }
 
+    for (final category in categories) {
+      categoryColors.putIfAbsent(category, () => Colors.teal);
+    }
+
     setState(() {});
   }
 
-  // ================= ADD =================
   void addTransaction(double amount, String category) {
     DateTime finalDate;
 
@@ -179,14 +348,14 @@ class _MainScreenState extends State<MainScreen> {
         'amount': amount,
         'category': category,
         'date': finalDate,
-        'mode': "Cash"
+        'mode': "Cash",
       });
+      categoryColors.putIfAbsent(category, () => Colors.teal);
     });
 
     saveData();
   }
 
-  // ================= TOTAL =================
   double get total {
     if (viewMode == "Monthly") {
       return transactions
@@ -202,7 +371,6 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // ================= LIMIT LOGIC =================
   double get currentLimit => viewMode == "Daily" ? dailyLimit : monthlyLimit;
   double get remaining => currentLimit == 0 ? 0 : currentLimit - total;
 
@@ -215,7 +383,6 @@ class _MainScreenState extends State<MainScreen> {
     return const Color.fromARGB(255, 210, 213, 212);
   }
 
-  // ================= FILTER =================
   List<Map<String, dynamic>> get filtered {
     List<Map<String, dynamic>> list;
 
@@ -232,7 +399,8 @@ class _MainScreenState extends State<MainScreen> {
           .toList();
     }
 
-    list.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
+    list.sort((a, b) =>
+        (b['date'] as DateTime).compareTo(a['date'] as DateTime));
     return list;
   }
 
@@ -243,7 +411,6 @@ class _MainScreenState extends State<MainScreen> {
     saveData();
   }
 
-  // ================= WEEK HELPERS =================
   String _weekdayShort(DateTime date) {
     const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     return days[date.weekday - 1];
@@ -251,15 +418,24 @@ class _MainScreenState extends State<MainScreen> {
 
   String _monthShort(DateTime date) {
     const months = [
-      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec"
     ];
     return months[date.month - 1];
   }
 
   String _formatWeekRange(DateTime start, DateTime end) {
-    return "${_weekdayShort(start)} ${start.day} ${_monthShort(start)} - "
-        "${_weekdayShort(end)} ${end.day} ${_monthShort(end)}";
+    return "${_weekdayShort(start)} ${start.day} ${_monthShort(start)} - ${_weekdayShort(end)} ${end.day} ${_monthShort(end)}";
   }
 
   int _daysInMonth(int year, int month) {
@@ -323,9 +499,18 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  Color _getColor(dynamic category) {
+    final String safeCategory = (category ?? '').toString().trim();
+
+    if (safeCategory.isEmpty) {
+      return Colors.teal;
+    }
+
+    return categoryColors[safeCategory] ?? Colors.teal;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       floatingActionButton: currentIndex == 0
           ? Column(
@@ -351,7 +536,7 @@ class _MainScreenState extends State<MainScreen> {
             ? buildHome()
             : currentIndex == 1
                 ? buildReport()
-                : buildProfile()
+                : buildProfile(),
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: currentIndex,
@@ -372,9 +557,7 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // ================= HOME =================
   Widget buildHome() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       children: [
         Container(
@@ -392,7 +575,6 @@ class _MainScreenState extends State<MainScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // TITLE + DATE
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -401,17 +583,15 @@ class _MainScreenState extends State<MainScreen> {
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w600,
-                      color: const Color.fromARGB(255, 252, 252, 252),
+                      color: Color.fromARGB(255, 252, 252, 252),
                     ),
                   ),
                   Text(
                     "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}",
-                  )
+                  ),
                 ],
               ),
               SizedBox(height: 8),
-
-              // TOTAL + LIMIT
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -419,13 +599,8 @@ class _MainScreenState extends State<MainScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        viewMode == "Monthly"
-                            ? "Monthly Expense"
-                            : "Today's Expense",
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.white70,
-                        ),
+                        viewMode == "Monthly" ? "Monthly Expense" : "Today's Expense",
+                        style: TextStyle(fontSize: 14, color: Colors.white70),
                       ),
                       SizedBox(height: 4),
                       Text(
@@ -452,10 +627,7 @@ class _MainScreenState extends State<MainScreen> {
                                 },
                                 child: Container(
                                   margin: EdgeInsets.only(top: 6),
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
+                                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                   decoration: BoxDecoration(
                                     color: Color(0xFFB00020).withOpacity(0.15),
                                     borderRadius: BorderRadius.circular(12),
@@ -515,9 +687,7 @@ class _MainScreenState extends State<MainScreen> {
                   )
                 ],
               ),
-
               SizedBox(height: 10),
-
               if (viewMode == "Daily")
                 SizedBox(
                   height: 45,
@@ -541,8 +711,7 @@ class _MainScreenState extends State<MainScreen> {
                       }),
                       _dailyItem("Yesterday", "Yesterday", () {
                         setState(() {
-                          selectedDate =
-                              DateTime.now().subtract(Duration(days: 1));
+                          selectedDate = DateTime.now().subtract(Duration(days: 1));
                           selectedDayType = "Yesterday";
                         });
                         saveData();
@@ -604,8 +773,6 @@ class _MainScreenState extends State<MainScreen> {
             ],
           ),
         ),
-
-        // LIST
         Expanded(
           child: ListView.builder(
             padding: EdgeInsets.only(bottom: 130),
@@ -655,631 +822,565 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // ================= REPORT =================
   Widget buildReport() {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final reportList = getCurrentReportList();
+    final weeks = getWeeksForMonth(DateTime.now().year, selectedMonth);
 
-  final reportList = getCurrentReportList();
-  final weeks = getWeeksForMonth(DateTime.now().year, selectedMonth);
+    if (selectedWeekIndex >= weeks.length && weeks.isNotEmpty) {
+      selectedWeekIndex = 0;
+    }
 
-  if (selectedWeekIndex >= weeks.length && weeks.isNotEmpty) {
-    selectedWeekIndex = 0;
-  }
+    double totalAmount =
+        reportList.fold(0.0, (s, i) => s + (i['amount'] as double));
 
-  double totalAmount =
-      reportList.fold(0.0, (s, i) => s + (i['amount'] as double));
+    Map<String, double> categoryTotal = {};
+    for (var tx in reportList) {
+      String cat = tx['category'];
+      double amt = tx['amount'];
+      categoryTotal[cat] = (categoryTotal[cat] ?? 0) + amt;
+    }
 
-  Map<String, double> categoryTotal = {};
-  for (var tx in reportList) {
-    String cat = tx['category'];
-    double amt = tx['amount'];
-    categoryTotal[cat] = (categoryTotal[cat] ?? 0) + amt;
-  }
-
-  return Column(
-    children: [
-      // ================= REPORT HEADER =================
-      Container(
-        width: double.infinity,
-        padding: EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF1E1E2C),
-              Color(0xFF2C2C54),
-            ],
+    return Column(
+      children: [
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF1E1E2C), Color(0xFF2C2C54)],
+            ),
           ),
-        ),
-        child: SafeArea(
-          bottom: false,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    "Expense Report",
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Expense Report",
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                     ),
-                  ),
-                  GestureDetector(
-                    onTap: () => openSmartInsightsDialog(),
-                    child: Container(
-                      padding: EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white10,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.white12),
-                      ),
-                      child: Icon(
-                        Icons.auto_awesome_rounded,
-                        color: Colors.amberAccent,
-                        size: 22,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 14),
-              Text(
-                "Total: ₹ ${totalAmount.toStringAsFixed(0)}",
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.greenAccent,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
 
-      // ================= REPORT BODY =================
-      Expanded(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      "Category Breakdown",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  SizedBox(width: 8),
-                  Row(
-                    children: [
-                      ChoiceChip(
-                        label: Text(
-                          "Monthly",
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        labelPadding: EdgeInsets.symmetric(horizontal: 4),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        visualDensity: VisualDensity.compact,
-                        selected: reportView == "Monthly",
-                        onSelected: (_) {
-                          setState(() {
-                            reportView = "Monthly";
-                            selectedWeekIndex = 0;
-                          });
-                          saveData();
-                        },
-                      ),
-                      SizedBox(width: 4),
-                      ChoiceChip(
-                        label: Text(
-                          "Weekly",
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        labelPadding: EdgeInsets.symmetric(horizontal: 4),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        visualDensity: VisualDensity.compact,
-                        selected: reportView == "Weekly",
-                        onSelected: (_) {
-                          setState(() {
-                            reportView = "Weekly";
-                            selectedWeekIndex = 0;
-                          });
-                          saveData();
-                        },
-                      ),
-                      SizedBox(width: 4),
-                      ChoiceChip(
-                        label: Text(
-                          "Daily",
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        labelPadding: EdgeInsets.symmetric(horizontal: 4),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        visualDensity: VisualDensity.compact,
-                        selected: reportView == "Daily",
-                        onSelected: (_) {
-                          setState(() {
-                            reportView = "Daily";
-                            selectedWeekIndex = 0;
-                          });
-                          saveData();
-                        },
-                      ),
-                    ],
-                  )
-                ],
-              ),
-
-              SizedBox(height: 10),
-
-              if (reportView == "Monthly")
-                SizedBox(
-                  height: 40,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: 12,
-                    itemBuilder: (_, i) {
-                      bool sel = selectedMonth == i + 1;
-
-                      return GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            selectedMonth = i + 1;
-                          });
-                          saveData();
-                        },
-                        child: AnimatedContainer(
-                          duration: Duration(milliseconds: 250),
-                          margin: EdgeInsets.only(right: 8),
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: sel
-                                ? Color(0xFF40407A)
-                                : (isDark
-                                    ? Colors.white10
-                                    : Colors.grey.shade200),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: sel
-                                  ? Colors.white24
-                                  : Colors.transparent,
+                    Row(
+                      children: [
+                        // ⭐ Smart Insights
+                        GestureDetector(
+                          onTap: () => openSmartInsightsDialog(),
+                          child: Container(
+                            padding: EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white10,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.white12),
+                            ),
+                            child: Icon(
+                              Icons.auto_awesome_rounded,
+                              color: Colors.amberAccent,
+                              size: 22,
                             ),
                           ),
-                          child: Center(
-                            child: Text(
-                              [
-                                "Jan",
-                                "Feb",
-                                "Mar",
-                                "Apr",
-                                "May",
-                                "Jun",
-                                "Jul",
-                                "Aug",
-                                "Sep",
-                                "Oct",
-                                "Nov",
-                                "Dec"
-                              ][i],
-                              style: TextStyle(
-                                color: sel
-                                    ? Colors.white
-                                    : (isDark
-                                        ? Colors.white70
-                                        : Colors.black54),
-                                fontWeight: FontWeight.w600,
+                        ),
+
+                        SizedBox(width: 10),
+
+                        // 📤 EXPORT BUTTON
+                        GestureDetector(
+                          onTap: () => openExportReportDialog(),
+                          child: Container(
+                            padding: EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white10,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.white12),
+                            ),
+                            child: Icon(
+                              Icons.ios_share_rounded,
+                              color: Colors.greenAccent,
+                              size: 22,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  ],
+                ),
+                SizedBox(height: 14),
+                Text(
+                  "Total: ₹ ${totalAmount.toStringAsFixed(0)}",
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.greenAccent,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        "Category Breakdown",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Row(
+                      children: [
+                        ChoiceChip(
+                          label: Text("Monthly", style: TextStyle(fontSize: 12)),
+                          labelPadding: EdgeInsets.symmetric(horizontal: 4),
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                          selected: reportView == "Monthly",
+                          onSelected: (_) {
+                            setState(() {
+                              reportView = "Monthly";
+                              selectedWeekIndex = 0;
+                            });
+                            saveData();
+                          },
+                        ),
+                        SizedBox(width: 4),
+                        ChoiceChip(
+                          label: Text("Weekly", style: TextStyle(fontSize: 12)),
+                          labelPadding: EdgeInsets.symmetric(horizontal: 4),
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                          selected: reportView == "Weekly",
+                          onSelected: (_) {
+                            setState(() {
+                              reportView = "Weekly";
+                              selectedWeekIndex = 0;
+                            });
+                            saveData();
+                          },
+                        ),
+                        SizedBox(width: 4),
+                        ChoiceChip(
+                          label: Text("Daily", style: TextStyle(fontSize: 12)),
+                          labelPadding: EdgeInsets.symmetric(horizontal: 4),
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                          selected: reportView == "Daily",
+                          onSelected: (_) {
+                            setState(() {
+                              reportView = "Daily";
+                              selectedWeekIndex = 0;
+                            });
+                            saveData();
+                          },
+                        ),
+                      ],
+                    )
+                  ],
+                ),
+                SizedBox(height: 10),
+                if (reportView == "Monthly")
+                  SizedBox(
+                    height: 40,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: 12,
+                      itemBuilder: (_, i) {
+                        bool sel = selectedMonth == i + 1;
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              selectedMonth = i + 1;
+                            });
+                            saveData();
+                          },
+                          child: AnimatedContainer(
+                            duration: Duration(milliseconds: 250),
+                            margin: EdgeInsets.only(right: 8),
+                            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: sel
+                                  ? Color(0xFF40407A)
+                                  : (isDark ? Colors.white10 : Colors.grey.shade200),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Center(
+                              child: Text(
+                                [
+                                  "Jan",
+                                  "Feb",
+                                  "Mar",
+                                  "Apr",
+                                  "May",
+                                  "Jun",
+                                  "Jul",
+                                  "Aug",
+                                  "Sep",
+                                  "Oct",
+                                  "Nov",
+                                  "Dec"
+                                ][i],
+                                style: TextStyle(
+                                  color: sel
+                                      ? Colors.white
+                                      : (isDark ? Colors.white70 : Colors.black54),
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
-                ),
-
-              if (reportView == "Monthly") SizedBox(height: 12),
-
-              if (reportView == "Weekly")
-                SizedBox(
-                  height: 46,
-                  child: weeks.isEmpty
-                      ? Center(
-                          child: Text(
-                            "No weeks available",
-                            style: TextStyle(
-                              color:
-                                  isDark ? Colors.white70 : Colors.black54,
+                if (reportView == "Monthly") SizedBox(height: 12),
+                if (reportView == "Weekly")
+                  SizedBox(
+                    height: 46,
+                    child: weeks.isEmpty
+                        ? Center(
+                            child: Text(
+                              "No weeks available",
+                              style: TextStyle(
+                                color: isDark ? Colors.white70 : Colors.black54,
+                              ),
                             ),
+                          )
+                        : ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: weeks.length,
+                            itemBuilder: (_, i) {
+                              final week = weeks[i];
+                              final start = week['start']!;
+                              final end = week['end']!;
+                              final selected = selectedWeekIndex == i;
+
+                              return GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    selectedWeekIndex = i;
+                                  });
+                                  saveData();
+                                },
+                                child: AnimatedContainer(
+                                  duration: Duration(milliseconds: 250),
+                                  margin: EdgeInsets.only(right: 8),
+                                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: selected
+                                        ? Color(0xFF40407A)
+                                        : (isDark ? Colors.white10 : Colors.grey.shade200),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      _formatWeekRange(start, end),
+                                      style: TextStyle(
+                                        color: selected
+                                            ? Colors.white
+                                            : (isDark ? Colors.white70 : Colors.black54),
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                        )
-                      : ListView.builder(
+                  ),
+                if (reportView == "Weekly") SizedBox(height: 12),
+                if (reportView == "Daily")
+                  SizedBox(
+                    height: 58,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final totalDays = _daysInMonth(selectedDate.year, selectedDate.month);
+                        const double itemWidth = 68;
+                        final double screenWidth = constraints.maxWidth;
+
+                        double targetOffset = ((selectedDate.day - 1) * itemWidth) -
+                            (screenWidth / 2) +
+                            (itemWidth / 2);
+
+                        final double maxOffset = ((totalDays * itemWidth) - screenWidth) < 0
+                            ? 0
+                            : ((totalDays * itemWidth) - screenWidth);
+
+                        if (targetOffset < 0) targetOffset = 0;
+                        if (targetOffset > maxOffset) targetOffset = maxOffset;
+
+                        final controller = ScrollController(initialScrollOffset: targetOffset);
+
+                        return ListView.builder(
+                          controller: controller,
                           scrollDirection: Axis.horizontal,
-                          itemCount: weeks.length,
-                          itemBuilder: (_, i) {
-                            final week = weeks[i];
-                            final start = week['start']!;
-                            final end = week['end']!;
-                            final selected = selectedWeekIndex == i;
+                          itemCount: totalDays,
+                          itemBuilder: (_, index) {
+                            final date = DateTime(selectedDate.year, selectedDate.month, index + 1);
+                            final isSelected = selectedDate.day == date.day &&
+                                selectedDate.month == date.month &&
+                                selectedDate.year == date.year;
 
                             return GestureDetector(
                               onTap: () {
                                 setState(() {
-                                  selectedWeekIndex = i;
+                                  selectedDate = date;
+                                  selectedDayType = "Custom";
                                 });
                                 saveData();
                               },
                               child: AnimatedContainer(
                                 duration: Duration(milliseconds: 250),
                                 margin: EdgeInsets.only(right: 8),
-                                padding: EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 10),
+                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: selected
+                                  color: isSelected
                                       ? Color(0xFF40407A)
-                                      : (isDark
-                                          ? Colors.white10
-                                          : Colors.grey.shade200),
+                                      : (isDark ? Colors.white10 : Colors.grey.shade200),
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: selected
-                                        ? Colors.white24
-                                        : Colors.transparent,
-                                  ),
                                 ),
-                                child: Center(
-                                  child: Text(
-                                    _formatWeekRange(start, end),
-                                    style: TextStyle(
-                                      color: selected
-                                          ? Colors.white
-                                          : (isDark
-                                              ? Colors.white70
-                                              : Colors.black54),
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 12,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      _weekdayShort(date),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isSelected
+                                            ? Colors.white
+                                            : (isDark ? Colors.white70 : Colors.black54),
+                                      ),
                                     ),
-                                  ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      "${date.day}",
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: isSelected
+                                            ? Colors.white
+                                            : (isDark ? Colors.white : Colors.black87),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             );
                           },
-                        ),
-                ),
-
-              if (reportView == "Weekly") SizedBox(height: 12),
-
-              if (reportView == "Daily")
-                SizedBox(
-                  height: 58,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final totalDays =
-                          _daysInMonth(selectedDate.year, selectedDate.month);
-
-                      const double itemWidth = 68;
-                      final double screenWidth = constraints.maxWidth;
-
-                      double targetOffset =
-                          ((selectedDate.day - 1) * itemWidth) -
-                              (screenWidth / 2) +
-                              (itemWidth / 2);
-
-                      final double maxOffset =
-                          ((totalDays * itemWidth) - screenWidth) < 0
-                              ? 0
-                              : ((totalDays * itemWidth) - screenWidth);
-
-                      if (targetOffset < 0) targetOffset = 0;
-                      if (targetOffset > maxOffset) targetOffset = maxOffset;
-
-                      final controller =
-                          ScrollController(initialScrollOffset: targetOffset);
-
-                      return ListView.builder(
-                        controller: controller,
-                        scrollDirection: Axis.horizontal,
-                        itemCount: totalDays,
-                        itemBuilder: (_, index) {
-                          final date = DateTime(
-                            selectedDate.year,
-                            selectedDate.month,
-                            index + 1,
-                          );
-
-                          final isSelected =
-                              selectedDate.day == date.day &&
-                                  selectedDate.month == date.month &&
-                                  selectedDate.year == date.year;
-
-                          return GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                selectedDate = date;
-                                selectedDayType = "Custom";
-                              });
-                              saveData();
-                            },
-                            child: AnimatedContainer(
-                              duration: Duration(milliseconds: 250),
-                              margin: EdgeInsets.only(right: 8),
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? Color(0xFF40407A)
-                                    : (isDark
-                                        ? Colors.white10
-                                        : Colors.grey.shade200),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? Colors.white24
-                                      : Colors.transparent,
-                                ),
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    _weekdayShort(date),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: isSelected
-                                          ? Colors.white
-                                          : (isDark
-                                              ? Colors.white70
-                                              : Colors.black54),
-                                    ),
-                                  ),
-                                  SizedBox(height: 2),
-                                  Text(
-                                    "${date.day}",
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                      color: isSelected
-                                          ? Colors.white
-                                          : (isDark
-                                              ? Colors.white
-                                              : Colors.black87),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
-                ),
-
-              if (reportView == "Daily") SizedBox(height: 12),
-
-              Expanded(
-                child: reportChartType == "List"
-                    ? ListView(
-                        children: categoryTotal.entries.map((entry) {
-                          return GestureDetector(
-                            onTap: () {
-                              openCategoryTransactionsDialog(
-                                  entry.key, reportList);
-                            },
-                            child: Container(
-                              margin: EdgeInsets.symmetric(vertical: 6),
-                              padding: EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: isDark
-                                    ? Colors.white10
-                                    : Colors.grey.shade200,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    entry.key,
-                                    style: TextStyle(
-                                      color: isDark
-                                          ? Colors.white
-                                          : Colors.black87,
-                                    ),
-                                  ),
-                                  GestureDetector(
-                                    onTap: () {
-                                      setState(() {
-                                        showPercentage = !showPercentage;
-                                      });
-                                    },
-                                    child: Text(
-                                      showPercentage
-                                          ? (totalAmount == 0
-                                              ? "0.0%"
-                                              : "${((entry.value / totalAmount) * 100).toStringAsFixed(1)}%")
-                                          : "₹ ${entry.value.toStringAsFixed(0)}",
+                if (reportView == "Daily") SizedBox(height: 12),
+                Expanded(
+                  child: reportChartType == "List"
+                      ? ListView(
+                          children: categoryTotal.entries.map((entry) {
+                            return GestureDetector(
+                              onTap: () {
+                                openCategoryTransactionsDialog(entry.key, reportList);
+                              },
+                              child: Container(
+                                margin: EdgeInsets.symmetric(vertical: 6),
+                                padding: EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      entry.key,
                                       style: TextStyle(
-                                        color: Colors.greenAccent,
-                                        fontWeight: FontWeight.w600,
+                                        color: isDark ? Colors.white : Colors.black87,
                                       ),
                                     ),
-                                  )
-                                ],
+                                    GestureDetector(
+                                      onTap: () {
+                                        setState(() {
+                                          showPercentage = !showPercentage;
+                                        });
+                                      },
+                                      child: Text(
+                                        showPercentage
+                                            ? (totalAmount == 0
+                                                ? "0.0%"
+                                                : "${((entry.value / totalAmount) * 100).toStringAsFixed(1)}%")
+                                            : "₹ ${entry.value.toStringAsFixed(0)}",
+                                        style: TextStyle(
+                                          color: Colors.greenAccent,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    )
+                                  ],
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        )
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              height: 220,
+                              child: PieChart(
+                                PieChartData(
+                                  sectionsSpace: 2,
+                                  centerSpaceRadius: 40,
+                                  sections: categoryTotal.entries.map((entry) {
+                                    final percentage = totalAmount == 0
+                                        ? 0
+                                        : (entry.value / totalAmount) * 100;
+
+                                    return PieChartSectionData(
+                                      value: entry.value,
+                                      title: totalAmount == 0
+                                          ? ""
+                                          : "${percentage.toStringAsFixed(1)}%",
+                                      radius: 70,
+                                      titleStyle: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                      color: _getColor(entry.key.toString()),
+                                    );
+                                  }).toList(),
+                                ),
                               ),
                             ),
-                          );
-                        }).toList(),
-                      )
-                    : Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            height: 220,
-                            child: PieChart(
-                              PieChartData(
-                                sectionsSpace: 2,
-                                centerSpaceRadius: 40,
-                                sections: categoryTotal.entries.map((entry) {
-                                  final percentage = totalAmount == 0
-                                      ? 0
-                                      : (entry.value / totalAmount) * 100;
-
-                                  return PieChartSectionData(
-                                    value: entry.value,
-                                    title: totalAmount == 0
-                                        ? ""
-                                        : "${percentage.toStringAsFixed(1)}%",
-                                    radius: 70,
-                                    titleStyle: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
+                            SizedBox(height: 20),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 10,
+                              children: categoryTotal.entries.map((entry) {
+                                return Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(
+                                        color: _getColor(entry.key.toString()),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
                                     ),
-                                    color: _getColor(entry.key),
-                                  );
-                                }).toList(),
-                              ),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      entry.key,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: isDark ? Colors.white : Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              }).toList(),
                             ),
-                          ),
-                          SizedBox(height: 20),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 10,
-                            children: categoryTotal.entries.map((entry) {
-                              return Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    width: 12,
-                                    height: 12,
-                                    decoration: BoxDecoration(
-                                      color: _getColor(entry.key),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                  ),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    entry.key,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: isDark
-                                          ? Colors.white
-                                          : Colors.black87,
-                                    ),
-                                  ),
-                                ],
-                              );
-                            }).toList(),
-                          ),
-                        ],
-                      ),
-              ),
-
-              SizedBox(height: 12),
-
-              Center(
-                child: Container(
-                  padding: EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.white10
-                        : Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            reportChartType = "List";
-                          });
-                          saveData();
-                        },
-                        child: AnimatedContainer(
-                          duration: Duration(milliseconds: 250),
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: reportChartType == "List"
-                                ? Color(0xFF40407A)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(25),
-                          ),
-                          child: Text(
-                            "List",
-                            style: TextStyle(
+                          ],
+                        ),
+                ),
+                SizedBox(height: 12),
+                Center(
+                  child: Container(
+                    padding: EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white10 : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              reportChartType = "List";
+                            });
+                            saveData();
+                          },
+                          child: AnimatedContainer(
+                            duration: Duration(milliseconds: 250),
+                            padding: EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                            decoration: BoxDecoration(
                               color: reportChartType == "List"
-                                  ? Colors.white
-                                  : (isDark
-                                      ? Colors.white70
-                                      : Colors.black54),
-                              fontWeight: FontWeight.w600,
+                                  ? Color(0xFF40407A)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            child: Text(
+                              "List",
+                              style: TextStyle(
+                                color: reportChartType == "List"
+                                    ? Colors.white
+                                    : (isDark ? Colors.white70 : Colors.black54),
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      SizedBox(width: 6),
-                      GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            reportChartType = "Pie";
-                          });
-                          saveData();
-                        },
-                        child: AnimatedContainer(
-                          duration: Duration(milliseconds: 250),
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: reportChartType == "Pie"
-                                ? Color(0xFF40407A)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(25),
-                          ),
-                          child: Text(
-                            "Pie",
-                            style: TextStyle(
+                        SizedBox(width: 6),
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              reportChartType = "Pie";
+                            });
+                            saveData();
+                          },
+                          child: AnimatedContainer(
+                            duration: Duration(milliseconds: 250),
+                            padding: EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                            decoration: BoxDecoration(
                               color: reportChartType == "Pie"
-                                  ? Colors.white
-                                  : (isDark
-                                      ? Colors.white70
-                                      : Colors.black54),
-                              fontWeight: FontWeight.w600,
+                                  ? Color(0xFF40407A)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            child: Text(
+                              "Pie",
+                              style: TextStyle(
+                                color: reportChartType == "Pie"
+                                    ? Colors.white
+                                    : (isDark ? Colors.white70 : Colors.black54),
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
+
   Widget buildProfile() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final double totalExpense = transactions.fold(
       0.0,
       (sum, tx) => sum + (tx['amount'] as double),
     );
-
     final int totalTransactions = transactions.length;
 
     return SingleChildScrollView(
@@ -1287,16 +1388,12 @@ class _MainScreenState extends State<MainScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ================= PROFILE HEADER =================
           Container(
             width: double.infinity,
             padding: EdgeInsets.all(20),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  Color(0xFF1E1E2C),
-                  Color(0xFF2C2C54),
-                ],
+                colors: [Color(0xFF1E1E2C), Color(0xFF2C2C54)],
               ),
               borderRadius: BorderRadius.circular(20),
             ),
@@ -1305,11 +1402,7 @@ class _MainScreenState extends State<MainScreen> {
                 CircleAvatar(
                   radius: 34,
                   backgroundColor: Colors.white12,
-                  child: Icon(
-                    Icons.person,
-                    size: 34,
-                    color: Colors.white,
-                  ),
+                  child: Icon(Icons.person, size: 34, color: Colors.white),
                 ),
                 SizedBox(height: 12),
                 Text(
@@ -1323,28 +1416,17 @@ class _MainScreenState extends State<MainScreen> {
                 SizedBox(height: 4),
                 Text(
                   "Track your expenses smartly",
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
                 ),
               ],
             ),
           ),
-
           SizedBox(height: 18),
-
-      
-          // ================= SETTINGS =================
           Text(
             "Settings",
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
           ),
           SizedBox(height: 10),
-
           _profileTile(
             icon: Icons.today_rounded,
             title: "Daily Limit",
@@ -1356,9 +1438,7 @@ class _MainScreenState extends State<MainScreen> {
               openLimitDialog(context);
             },
           ),
-
           SizedBox(height: 10),
-
           _profileTile(
             icon: Icons.calendar_month_rounded,
             title: "Monthly Limit",
@@ -1370,9 +1450,7 @@ class _MainScreenState extends State<MainScreen> {
               openLimitDialog(context);
             },
           ),
-
           SizedBox(height: 10),
-
           _profileToggleTile(
             icon: Icons.dark_mode_rounded,
             title: "Dark Mode",
@@ -1381,96 +1459,48 @@ class _MainScreenState extends State<MainScreen> {
               widget.onThemeToggle();
             },
           ),
-          SizedBox(height: 10),
-
-          _profileTile(
-            icon: Icons.today_rounded,
-            title: "Daily Limit",
-            value: dailyLimit == 0 ? "Not set" : "₹ ${dailyLimit.toStringAsFixed(0)}",
-            onTap: () {
-              setState(() {
-                viewMode = "Daily";
-              });
-              openLimitDialog(context);
-            },
-          ),
-
-          SizedBox(height: 10),
-
-          _profileTile(
-            icon: Icons.calendar_month_rounded,
-            title: "Monthly Limit",
-            value: monthlyLimit == 0 ? "Not set" : "₹ ${monthlyLimit.toStringAsFixed(0)}",
-            onTap: () {
-              setState(() {
-                viewMode = "Monthly";
-              });
-              openLimitDialog(context);
-            },
-          ),
-
           SizedBox(height: 18),
-
-          // ================= DATA SECTION =================
           Text(
             "Data",
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
           ),
           SizedBox(height: 10),
-
           _profileTile(
             icon: Icons.account_balance_wallet_rounded,
             title: "Total Expense",
             value: "₹ ${totalExpense.toStringAsFixed(0)}",
           ),
-
           SizedBox(height: 10),
-
           _profileTile(
             icon: Icons.receipt_long_rounded,
             title: "Total Transactions",
             value: "$totalTransactions",
           ),
-
           SizedBox(height: 10),
-
           _profileTile(
             icon: Icons.category_rounded,
             title: "Total Categories",
             value: "${categories.length}",
+            onTap: () => openCategoryManagerDialog(),
           ),
-
           SizedBox(height: 18),
-
-          // ================= ABOUT SECTION =================
           Text(
             "About",
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
           ),
           SizedBox(height: 10),
-
           _profileTile(
             icon: Icons.apps_rounded,
             title: "App Name",
             value: "Daily Kharcha",
           ),
-
           SizedBox(height: 10),
-
           _profileTile(
             icon: Icons.code_rounded,
             title: "Developer",
-            value: "Harshender Singh ",
+            value: "Harshender Singh",
           ),
-
           SizedBox(height: 10),
-
           _profileTile(
             icon: Icons.info_outline_rounded,
             title: "Version",
@@ -1480,6 +1510,596 @@ class _MainScreenState extends State<MainScreen> {
       ),
     );
   }
+
+  void openCategoryManagerDialog() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final TextEditingController categoryController = TextEditingController();
+
+    final List<Color> presetColors = [
+      Colors.orange,
+      Colors.blue,
+      Colors.purple,
+      Colors.red,
+      Colors.green,
+      Colors.teal,
+      Colors.pink,
+      Colors.brown,
+      Colors.indigo,
+      Colors.cyan,
+    ];
+
+    showDialog(
+      context: context,
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.8,
+                ),
+                padding: EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Manage Categories",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      "Total Categories: ${categories.length}",
+                      style: TextStyle(
+                        color: Colors.black54,
+                        fontSize: 13,
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: categoryController,
+                            style: TextStyle(color: Colors.black),
+                            decoration: InputDecoration(
+                              hintText: "Add new category",
+                              filled: true,
+                              fillColor: Colors.grey.shade100,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 10),
+                        GestureDetector(
+                          onTap: () {
+                            final newCategory = categoryController.text.trim();
+                            if (newCategory.isEmpty || categories.contains(newCategory)) {
+                              return;
+                            }
+                            setState(() {
+                              categories.add(newCategory);
+                              categoryColors[newCategory] = Colors.teal;
+                            });
+                            setDialogState(() {});
+                            saveData();
+                            categoryController.clear();
+                          },
+                          child: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              "Add",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        )
+                      ],
+                    ),
+                    SizedBox(height: 18),
+                    Expanded(
+                      child: ListView.separated(
+                        itemCount: categories.length,
+                        separatorBuilder: (_, __) => SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final category = categories[index];
+                          final currentColor = categoryColors[category] ?? Colors.teal;
+                          final count = transactions.where((tx) => tx['category'] == category).length;
+
+                          return GestureDetector(
+                            onTap: () => openCategoryEditDialog(category, setDialogState),
+                            child: Container(
+                              padding: EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 18,
+                                    height: 18,
+                                    decoration: BoxDecoration(
+                                      color: currentColor,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          category,
+                                          style: TextStyle(
+                                            color: Colors.black87,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        SizedBox(height: 2),
+                                        Text(
+                                          "$count transaction${count == 1 ? '' : 's'}",
+                                          style: TextStyle(
+                                            color: Colors.black54,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: Colors.black45,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    SizedBox(height: 14),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        width: double.infinity,
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Center(
+                          child: Text(
+                            "Done",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void openCategoryEditDialog(String oldCategory, void Function(void Function()) refreshParent) {
+    final TextEditingController renameController =
+        TextEditingController(text: oldCategory);
+
+    final List<Color> presetColors = [
+      Colors.orange,
+      Colors.blue,
+      Colors.purple,
+      Colors.red,
+      Colors.green,
+      Colors.teal,
+      Colors.pink,
+      Colors.brown,
+      Colors.indigo,
+      Colors.cyan,
+    ];
+
+    Color selectedColor = categoryColors[oldCategory] ?? Colors.teal;
+
+    showDialog(
+      context: context,
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Container(
+                padding: EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Edit Category",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    SizedBox(height: 14),
+                    TextField(
+                      controller: renameController,
+                      style: TextStyle(color: Colors.black),
+                      decoration: InputDecoration(
+                        labelText: "Category Name",
+                        filled: true,
+                        fillColor: Colors.grey.shade100,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 14),
+                    Text(
+                      "Choose Color",
+                      style: TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: presetColors.map((color) {
+                        final isSelected = selectedColor.value == color.value;
+                        return GestureDetector(
+                          onTap: () {
+                            setDialogState(() {
+                              selectedColor = color;
+                            });
+                          },
+                          child: Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isSelected ? Colors.black : Colors.transparent,
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              final newName = renameController.text.trim();
+                              if (newName.isEmpty) return;
+                              if (newName != oldCategory && categories.contains(newName)) return;
+
+                              setState(() {
+                                final categoryIndex = categories.indexOf(oldCategory);
+                                if (categoryIndex != -1) {
+                                  categories[categoryIndex] = newName;
+                                }
+
+                                final oldColor = categoryColors.remove(oldCategory) ?? selectedColor;
+                                categoryColors[newName] = selectedColor == oldColor ? oldColor : selectedColor;
+
+                                for (var tx in transactions) {
+                                  if (tx['category'] == oldCategory) {
+                                    tx['category'] = newName;
+                                  }
+                                }
+                              });
+
+                              saveData();
+                              refreshParent(() {});
+                              Navigator.pop(context);
+                            },
+                            child: Container(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  "Save",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              Navigator.pop(context);
+                              openDeleteCategoryDecisionDialog(oldCategory, refreshParent);
+                            },
+                            child: Container(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.red.shade200),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  "Delete",
+                                  style: TextStyle(
+                                    color: Colors.red,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void openDeleteCategoryDecisionDialog(String category, void Function(void Function()) refreshParent) {
+    final relatedTransactions =
+        transactions.where((tx) => tx['category'] == category).toList();
+    final TextEditingController renameController =
+        TextEditingController(text: category);
+
+    showDialog(
+      context: context,
+      builder: (_) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.78,
+            ),
+            padding: EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Delete Category Warning",
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  relatedTransactions.isEmpty
+                      ? "No transactions are linked with this category."
+                      : "${relatedTransactions.length} transaction${relatedTransactions.length == 1 ? '' : 's'} are linked with this category.",
+                  style: TextStyle(
+                    color: Colors.black54,
+                    fontSize: 13,
+                  ),
+                ),
+                SizedBox(height: 14),
+                if (relatedTransactions.isNotEmpty)
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: relatedTransactions.length,
+                      separatorBuilder: (_, __) => SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final tx = relatedTransactions[index];
+                        final date = tx['date'] as DateTime;
+                        return Container(
+                          padding: EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      tx['category'],
+                                      style: TextStyle(
+                                        color: Colors.black87,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    SizedBox(height: 3),
+                                    Text(
+                                      "${date.day}/${date.month}/${date.year} • ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}",
+                                      style: TextStyle(
+                                        color: Colors.black54,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                "₹ ${(tx['amount'] as double).toStringAsFixed(0)}",
+                                style: TextStyle(
+                                  color: Color(0xFF2C2C54),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                if (relatedTransactions.isEmpty) SizedBox(height: 8),
+                SizedBox(height: 14),
+                TextField(
+                  controller: renameController,
+                  style: TextStyle(color: Colors.black),
+                  decoration: InputDecoration(
+                    labelText: "Rename instead of delete",
+                    hintText: "Enter new category name",
+                    filled: true,
+                    fillColor: Colors.grey.shade100,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+                SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          final newName = renameController.text.trim();
+                          if (newName.isEmpty) return;
+                          if (newName != category && categories.contains(newName)) return;
+
+                          setState(() {
+                            final categoryIndex = categories.indexOf(category);
+                            if (categoryIndex != -1) {
+                              categories[categoryIndex] = newName;
+                            }
+
+                            final oldColor = categoryColors.remove(category) ?? Colors.teal;
+                            categoryColors[newName] = oldColor;
+
+                            for (var tx in transactions) {
+                              if (tx['category'] == category) {
+                                tx['category'] = newName;
+                              }
+                            }
+                          });
+
+                          saveData();
+                          refreshParent(() {});
+                          Navigator.pop(context);
+                        },
+                        child: Container(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                            child: Text(
+                              "Rename",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            categories.remove(category);
+                            categoryColors.remove(category);
+                            transactions.removeWhere((tx) => tx['category'] == category);
+                          });
+                          saveData();
+                          refreshParent(() {});
+                          Navigator.pop(context);
+                        },
+                        child: Container(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.red.shade200),
+                          ),
+                          child: Center(
+                            child: Text(
+                              "Delete",
+                              style: TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _profileToggleTile({
     required IconData icon,
     required String title,
@@ -1515,13 +2135,13 @@ class _MainScreenState extends State<MainScreen> {
       ),
     );
   }
+
   void openTransactionDetail(Map<String, dynamic> tx) {
     showDialog(
       context: context,
       builder: (_) {
         return Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: Container(
             padding: EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -1588,13 +2208,9 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  void openCategoryTransactionsDialog(
-    String category,
-    List<Map<String, dynamic>> reportList,
-  ) {
-    final categoryTransactions = reportList
-        .where((tx) => tx['category'] == category)
-        .toList();
+  void openCategoryTransactionsDialog(String category, List<Map<String, dynamic>> reportList) {
+    final categoryTransactions =
+        reportList.where((tx) => tx['category'] == category).toList();
 
     categoryTransactions.sort(
       (a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime),
@@ -1722,8 +2338,7 @@ class _MainScreenState extends State<MainScreen> {
                                   SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           tx['category'],
@@ -1774,10 +2389,7 @@ class _MainScreenState extends State<MainScreen> {
                     padding: EdgeInsets.symmetric(vertical: 12),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [
-                          Color(0xFF2C2C54),
-                          Color(0xFF40407A),
-                        ],
+                        colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
                       ),
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -1808,8 +2420,7 @@ class _MainScreenState extends State<MainScreen> {
 
     int totalTransactions = reportList.length;
 
-    double averageAmount =
-        totalTransactions == 0 ? 0 : totalAmount / totalTransactions;
+    double averageAmount = totalTransactions == 0 ? 0 : totalAmount / totalTransactions;
 
     Map<String, double> categoryTotals = {};
     for (var tx in reportList) {
@@ -1929,10 +2540,7 @@ class _MainScreenState extends State<MainScreen> {
                     padding: EdgeInsets.symmetric(vertical: 12),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [
-                          Color(0xFF2C2C54),
-                          Color(0xFF40407A),
-                        ],
+                        colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
                       ),
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -1990,11 +2598,19 @@ class _MainScreenState extends State<MainScreen> {
                 fontWeight: FontWeight.w600,
               ),
             ),
+            if (onTap != null) ...[
+              SizedBox(width: 6),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: isDark ? Colors.white54 : Colors.black45,
+              ),
+            ],
           ],
         ),
       ),
     );
   }
+
   Widget _insightTile({
     required IconData icon,
     required String title,
@@ -2016,11 +2632,7 @@ class _MainScreenState extends State<MainScreen> {
               color: Color(0xFF2C2C54).withOpacity(0.10),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              icon,
-              color: Color(0xFF2C2C54),
-              size: 20,
-            ),
+            child: Icon(icon, color: Color(0xFF2C2C54), size: 20),
           ),
           SizedBox(width: 12),
           Expanded(
@@ -2029,10 +2641,7 @@ class _MainScreenState extends State<MainScreen> {
               children: [
                 Text(
                   title,
-                  style: TextStyle(
-                    color: Colors.black54,
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: Colors.black54, fontSize: 12),
                 ),
                 SizedBox(height: 3),
                 Text(
@@ -2093,7 +2702,6 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // ================= ADD DIALOG =================
   void openAddDialog(BuildContext context) {
     TextEditingController amountController = TextEditingController();
     TextEditingController customController = TextEditingController();
@@ -2133,8 +2741,7 @@ class _MainScreenState extends State<MainScreen> {
                       hintText: "Enter Amount",
                       filled: true,
                       fillColor: Colors.grey.shade100,
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
@@ -2158,14 +2765,9 @@ class _MainScreenState extends State<MainScreen> {
                           },
                           child: AnimatedContainer(
                             duration: Duration(milliseconds: 200),
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
+                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             decoration: BoxDecoration(
-                              color: isSelected
-                                  ? Color(0xFF2C2C54)
-                                  : Colors.grey.shade200,
+                              color: isSelected ? Color(0xFF2C2C54) : Colors.grey.shade200,
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
@@ -2187,14 +2789,9 @@ class _MainScreenState extends State<MainScreen> {
                         },
                         child: AnimatedContainer(
                           duration: Duration(milliseconds: 200),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
-                            color: isCustom
-                                ? Colors.orange
-                                : Colors.grey.shade300,
+                            color: isCustom ? Colors.orange : Colors.grey.shade300,
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
@@ -2226,15 +2823,13 @@ class _MainScreenState extends State<MainScreen> {
                   SizedBox(height: 20),
                   GestureDetector(
                     onTap: () {
-                      double amount =
-                          double.tryParse(amountController.text) ?? 0;
-
-                      String finalCategory =
-                          isCustom ? customController.text.trim() : category;
+                      double amount = double.tryParse(amountController.text) ?? 0;
+                      String finalCategory = isCustom ? customController.text.trim() : category;
 
                       if (amount > 0 && finalCategory.isNotEmpty) {
                         if (!categories.contains(finalCategory)) {
                           categories.add(finalCategory);
+                          categoryColors[finalCategory] = Colors.teal;
                         }
                         addTransaction(amount, finalCategory);
                       }
@@ -2257,10 +2852,7 @@ class _MainScreenState extends State<MainScreen> {
                         padding: EdgeInsets.symmetric(vertical: 12),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [
-                              Color(0xFF2C2C54),
-                              Color(0xFF40407A),
-                            ],
+                            colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
                           ),
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -2285,7 +2877,6 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // ================= LIMIT DIALOG =================
   void openLimitDialog(BuildContext context) {
     TextEditingController controller = TextEditingController(
       text: viewMode == "Daily"
@@ -2346,9 +2937,7 @@ class _MainScreenState extends State<MainScreen> {
                         ),
                         SizedBox(height: 14),
                         Text(
-                          viewMode == "Daily"
-                              ? "Set Daily Limit"
-                              : "Set Monthly Limit",
+                          viewMode == "Daily" ? "Set Daily Limit" : "Set Monthly Limit",
                           style: TextStyle(
                             color: Colors.black87,
                             fontSize: 20,
@@ -2433,9 +3022,7 @@ class _MainScreenState extends State<MainScreen> {
                             Expanded(
                               child: GestureDetector(
                                 onTap: () {
-                                  double value =
-                                      double.tryParse(controller.text.trim()) ??
-                                          0;
+                                  double value = double.tryParse(controller.text.trim()) ?? 0;
 
                                   setState(() {
                                     if (viewMode == "Daily") {
@@ -2462,10 +3049,7 @@ class _MainScreenState extends State<MainScreen> {
                                     padding: EdgeInsets.symmetric(vertical: 13),
                                     decoration: BoxDecoration(
                                       gradient: LinearGradient(
-                                        colors: [
-                                          Color(0xFF2C2C54),
-                                          Color(0xFF40407A),
-                                        ],
+                                        colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
                                       ),
                                       borderRadius: BorderRadius.circular(14),
                                     ),
