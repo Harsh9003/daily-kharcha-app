@@ -452,7 +452,7 @@ class _MainScreenState extends State<MainScreen> {
 
       tx['id'] = docRef.id;
 
-      debugPrint("🔥 Saved to Firestore for user: $userId");
+      debugPrint("🔥 Saved for user: $userId");
     } catch (e) {
       debugPrint("❌ Firestore Error: $e");
     }
@@ -468,7 +468,7 @@ class _MainScreenState extends State<MainScreen> {
       final docId = tx['id'];
 
       if (docId == null || docId.toString().isEmpty) {
-        debugPrint("❌ Delete failed: document id missing");
+        debugPrint("❌ Delete failed: missing doc id");
         return;
       }
 
@@ -503,27 +503,19 @@ class _MainScreenState extends State<MainScreen> {
     try {
       final googleProvider = GoogleAuthProvider();
 
-      if (kIsWeb) {
-        final userCredential =
-            await FirebaseAuth.instance.signInWithPopup(googleProvider);
+      googleProvider.setCustomParameters({
+        'prompt': 'select_account',
+      });
 
-        setState(() {
-          currentUser = userCredential.user;
-        });
-      } else {
-        // mobile ke liye baad me google_sign_in use karenge
-        debugPrint("Google Sign-In mobile flow pending");
-      }
-
-      debugPrint("✅ Signed in: ${currentUser?.displayName}");
+      await FirebaseAuth.instance.signInWithPopup(googleProvider);
     } catch (e) {
       debugPrint("❌ Google Sign-In Error: $e");
     }
   }
 
   Future<void> signOutUser() async {
-  await FirebaseAuth.instance.signOut();
-}
+    await FirebaseAuth.instance.signOut();
+  }
 
   Widget _exportActionTile({
     required IconData icon,
@@ -693,6 +685,7 @@ class _MainScreenState extends State<MainScreen> {
 
       transactions = snapshot.docs.map((doc) {
         final data = doc.data();
+
         return {
           'id': doc.id,
           'amount': (data['amount'] as num).toDouble(),
@@ -702,7 +695,7 @@ class _MainScreenState extends State<MainScreen> {
         };
       }).toList();
 
-      debugPrint("✅ Loaded ${transactions.length} transactions for user: $userId");
+      debugPrint("✅ Loaded ${transactions.length} tx for user: $userId");
     } catch (e) {
       debugPrint("❌ Load Error: $e");
     }
@@ -741,11 +734,7 @@ class _MainScreenState extends State<MainScreen> {
 
     Future<void> loadData() async {
       transactions = []; //Temp
-    try {
-      await _loadTransactionsFromFirestore();
-    } catch (e) {
-      debugPrint('Firestore load failed: $e');
-    }
+    
     final prefs = await SharedPreferences.getInstance();
 
     final txString = prefs.getString('transactions');
@@ -1902,28 +1891,54 @@ class _MainScreenState extends State<MainScreen> {
             ),
             child: Column(
               children: [
-                CircleAvatar(
-                  radius: 34,
-                  backgroundColor: Colors.white12,
-                  backgroundImage: currentUser != null &&
-                          currentUser!.photoURL != null &&
-                          currentUser!.photoURL!.isNotEmpty
-                      ? NetworkImage(currentUser!.photoURL!)
-                      : null,
-                  child: currentUser == null ||
-                          currentUser!.photoURL == null ||
-                          currentUser!.photoURL!.isEmpty
-                      ? Text(
-                          (currentUser?.displayName?.isNotEmpty ?? false)
-                              ? currentUser!.displayName![0].toUpperCase()
-                              : "U",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
+                Container(
+                  width: 68,
+                  height: 68,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white12,
+                    border: Border.all(
+                      color: Colors.white24,
+                      width: 1.2,
+                    ),
+                  ),
+                  child: ClipOval(
+                    child: currentUser != null &&
+                            currentUser!.photoURL != null &&
+                            currentUser!.photoURL!.isNotEmpty
+                        ? Image.network(
+                            currentUser!.photoURL!,
+                            fit: BoxFit.cover,
+                            width: 68,
+                            height: 68,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Center(
+                                child: Text(
+                                  (currentUser?.displayName?.isNotEmpty ?? false)
+                                      ? currentUser!.displayName![0].toUpperCase()
+                                      : "U",
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              );
+                            },
+                          )
+                        : Center(
+                            child: Text(
+                              (currentUser?.displayName?.isNotEmpty ?? false)
+                                  ? currentUser!.displayName![0].toUpperCase()
+                                  : "U",
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
-                        )
-                      : null,
+                  ),
                 ),
                 SizedBox(height: 12),
                 Text(
