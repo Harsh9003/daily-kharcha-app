@@ -3,8 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services/pdf_service.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(DailyKharchaApp());
 }
 
@@ -74,6 +83,53 @@ class _MainScreenState extends State<MainScreen> {
 
   double dailyLimit = 0;
   double monthlyLimit = 0;
+
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  Future<void> _saveTransactionToFirestore(Map<String, dynamic> tx) async {
+    try {
+      final docRef =
+          await FirebaseFirestore.instance.collection('transactions').add({
+        'amount': tx['amount'],
+        'category': tx['category'],
+        'date': (tx['date'] as DateTime).toIso8601String(),
+        'mode': tx['mode'] ?? 'Cash',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      tx['id'] = docRef.id; // 🔥 IMPORTANT
+
+      debugPrint("🔥 Saved to Firestore");
+    } catch (e) {
+      debugPrint("❌ Firestore Error: $e");
+    }
+  }
+
+  Future<void> deleteTransaction(Map<String, dynamic> tx) async {
+    try {
+      final docId = tx['id'];
+
+      if (docId == null || docId.toString().isEmpty) {
+        debugPrint("❌ Delete failed: document id missing");
+        return;
+      }
+
+      await FirebaseFirestore.instance
+          .collection('transactions')
+          .doc(docId)
+          .delete();
+
+      setState(() {
+        transactions.remove(tx);
+      });
+
+      await saveData();
+      debugPrint("🗑️ Deleted from Firestore: $docId");
+    } catch (e) {
+      debugPrint("❌ Delete Error: $e");
+    }
+  }
 
   @override
   void initState() {
@@ -234,6 +290,25 @@ class _MainScreenState extends State<MainScreen> {
   }
 
 
+  Future<void> _loadTransactionsFromFirestore() async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('transactions')
+        .orderBy('createdAt', descending: true)
+        .get();
+
+    transactions = snapshot.docs.map((doc) {
+      final data = doc.data();
+
+      return {
+        'id': doc.id,
+        'amount': (data['amount'] as num).toDouble(),
+        'category': data['category'],
+        'date': DateTime.parse(data['date']),
+        'mode': data['mode'] ?? 'Cash',
+      };
+    }).toList();
+  }
+
   Future<void> saveData() async {
       final prefs = await SharedPreferences.getInstance();
 
@@ -266,6 +341,11 @@ class _MainScreenState extends State<MainScreen> {
     }
 
     Future<void> loadData() async {
+    try {
+      await _loadTransactionsFromFirestore();
+    } catch (e) {
+      debugPrint('Firestore load failed: $e');
+    }
     final prefs = await SharedPreferences.getInstance();
 
     final txString = prefs.getString('transactions');
@@ -320,10 +400,16 @@ class _MainScreenState extends State<MainScreen> {
       categoryColors.putIfAbsent(category, () => Colors.teal);
     }
 
+    try {
+      await _loadTransactionsFromFirestore();
+    } catch (e) {
+      debugPrint('Firestore load failed: $e');
+    }
+
     setState(() {});
   }
 
-  void addTransaction(double amount, String category) {
+  Future<void> addTransaction(double amount, String category) async {
     DateTime finalDate;
 
     if (viewMode == "Daily") {
@@ -343,17 +429,32 @@ class _MainScreenState extends State<MainScreen> {
       );
     }
 
+    final newTx = {
+      'amount': amount,
+      'category': category,
+      'date': finalDate,
+      'mode': "Cash",
+      'id': null,
+    };
+
+    // Pehle Firebase me save karo aur document id lo
+    final docRef = await FirebaseFirestore.instance.collection('transactions').add({
+      'amount': newTx['amount'],
+      'category': newTx['category'],
+      'date': (newTx['date'] as DateTime).toIso8601String(),
+      'mode': newTx['mode'],
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    newTx['id'] = docRef.id;
+
     setState(() {
-      transactions.add({
-        'amount': amount,
-        'category': category,
-        'date': finalDate,
-        'mode': "Cash",
-      });
+      transactions.add(newTx);
       categoryColors.putIfAbsent(category, () => Colors.teal);
     });
 
-    saveData();
+    await saveData();
+    debugPrint("🔥 Saved with id: ${docRef.id}");
   }
 
   double get total {
@@ -405,8 +506,8 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void deleteTx(Map<String, dynamic> tx) {
-    setState(() {
-      transactions.remove(tx);
+    setState(() async {
+      await deleteTransaction(tx);
     });
     saveData();
   }
@@ -798,7 +899,9 @@ class _MainScreenState extends State<MainScreen> {
                     ],
                   ),
                 ),
-                onDismissed: (_) => deleteTx(tx),
+                onDismissed: (_) async {
+                  await deleteTransaction(tx);
+                },
                 child: ListTile(
                   onTap: () => openTransactionDetail(tx),
                   title: Text(tx['category']),
@@ -2781,11 +2884,22 @@ class _MainScreenState extends State<MainScreen> {
                         );
                       }).toList(),
                       GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            isCustom = true;
-                            category = "Custom";
-                          });
+                        onTap: () async {
+                          double amount = double.tryParse(amountController.text) ?? 0;
+
+                          String finalCategory =
+                              isCustom ? customController.text.trim() : category;
+
+                          if (amount > 0 && finalCategory.isNotEmpty) {
+                            if (!categories.contains(finalCategory)) {
+                              categories.add(finalCategory);
+                              categoryColors[finalCategory] = Colors.teal;
+                            }
+
+                            await addTransaction(amount, finalCategory);
+                          }
+
+                          Navigator.pop(context);
                         },
                         child: AnimatedContainer(
                           duration: Duration(milliseconds: 200),
