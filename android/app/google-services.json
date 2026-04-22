@@ -12,7 +12,20 @@
           "package_name": "com.example.daily_kharcha"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "899253420996-5t6211n3pvco7g3qgpr3ueun613n1s8t.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.daily_kharcha",
+            "certificate_hash": "af767518b7357cb1ac7888d59d8354a2ea606edc"
+          }
+        },
+        {
+          "client_id": "899253420996-4tk9d7b09045eh327krupkjvef5n0ige.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBMZpLWJlYxQhfBESt4lQCzwACcBzAdd8E"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "899253420996-4tk9d7b09045eh327krupkjvef5n0ige.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

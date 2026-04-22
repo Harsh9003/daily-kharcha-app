@@ -8,6 +8,7 @@ import 'firebase_options.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 
 Future<void> main() async {
@@ -68,6 +69,7 @@ class AuthGate extends StatelessWidget {
         }
 
         if (snapshot.hasData) {
+          
           return MainScreen(
             isDarkMode: isDarkMode,
             onThemeToggle: onThemeToggle,
@@ -94,8 +96,31 @@ class _LoginScreenState extends State<LoginScreen>
 
   Future<void> signInWithGoogle() async {
     try {
-      final googleProvider = GoogleAuthProvider();
-      await FirebaseAuth.instance.signInWithPopup(googleProvider);
+      final GoogleSignIn googleSignIn = GoogleSignIn(
+        scopes: ['email'],
+      );
+
+      // 🔥 account picker force karega
+      await googleSignIn.signOut();
+
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+
+      if (googleUser == null) {
+        debugPrint("❌ User cancelled login");
+        return;
+      }
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      await FirebaseAuth.instance.signInWithCredential(credential);
+
+      debugPrint("✅ Login Success");
     } catch (e) {
       debugPrint("❌ Google Sign-In Error: $e");
     }
@@ -494,27 +519,30 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+
     currentUser = FirebaseAuth.instance.currentUser;
+
+    // 🔥 user refresh karega (photo issue fix)
+    currentUser?.reload().then((_) {
+      setState(() {
+        currentUser = FirebaseAuth.instance.currentUser;
+      });
+    });
+
     loadData();
   }
 
-
-  Future<void> signInWithGoogle() async {
-    try {
-      final googleProvider = GoogleAuthProvider();
-
-      googleProvider.setCustomParameters({
-        'prompt': 'select_account',
-      });
-
-      await FirebaseAuth.instance.signInWithPopup(googleProvider);
-    } catch (e) {
-      debugPrint("❌ Google Sign-In Error: $e");
-    }
-  }
-
   Future<void> signOutUser() async {
-    await FirebaseAuth.instance.signOut();
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+
+      await googleSignIn.signOut(); // 🔥 important
+      await FirebaseAuth.instance.signOut();
+
+      debugPrint("✅ User signed out");
+    } catch (e) {
+      debugPrint("❌ SignOut Error: $e");
+    }
   }
 
   Widget _exportActionTile({
@@ -701,6 +729,45 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  Future<void> clearLocalUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.remove('transactions');
+    await prefs.remove('categories');
+    await prefs.remove('categoryColors');
+    await prefs.remove('viewMode');
+    await prefs.remove('selectedMonth');
+    await prefs.remove('selectedDayType');
+    await prefs.remove('dailyLimit');
+    await prefs.remove('monthlyLimit');
+    await prefs.remove('reportView');
+    await prefs.remove('reportChartType');
+    await prefs.remove('selectedDate');
+    await prefs.remove('selectedWeekIndex');
+    await prefs.remove('showPercentage');
+
+    setState(() {
+      transactions = [];
+      categories = ["Food", "Travel", "Shopping", "Petrol"];
+      categoryColors = {
+        "Food": Colors.orange,
+        "Travel": Colors.blue,
+        "Shopping": Colors.purple,
+        "Petrol": Colors.red,
+      };
+      viewMode = "Monthly";
+      selectedDate = DateTime.now();
+      selectedMonth = DateTime.now().month;
+      selectedDayType = "Today";
+      reportView = "Monthly";
+      showPercentage = false;
+      reportChartType = "List";
+      selectedWeekIndex = 0;
+      dailyLimit = 0;
+      monthlyLimit = 0;
+    });
+  }
+
   Future<void> saveData() async {
       final prefs = await SharedPreferences.getInstance();
 
@@ -733,22 +800,28 @@ class _MainScreenState extends State<MainScreen> {
     }
 
     Future<void> loadData() async {
-      transactions = []; //Temp
-    
-    final prefs = await SharedPreferences.getInstance();
+      transactions = [];
 
-    final txString = prefs.getString('transactions');
-    if (txString != null) {
-      final decoded = jsonDecode(txString) as List;
-      transactions = decoded.map((item) {
-        return {
-          'amount': (item['amount'] as num).toDouble(),
-          'category': item['category'],
-          'date': DateTime.parse(item['date']),
-          'mode': item['mode'] ?? "Cash",
-        };
-      }).toList();
-    }
+      final prefs = await SharedPreferences.getInstance();
+
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+      if (currentUid == null) {
+        setState(() {});
+        return;
+      }
+
+      final txString = prefs.getString('transactions');
+      if (txString != null) {
+        final decoded = jsonDecode(txString) as List;
+        transactions = decoded.map((item) {
+          return {
+            'amount': (item['amount'] as num).toDouble(),
+            'category': item['category'],
+            'date': DateTime.parse(item['date']),
+            'mode': item['mode'] ?? "Cash",
+          };
+        }).toList();
+      }
 
     final savedCategories = prefs.getStringList('categories');
     if (savedCategories != null && savedCategories.isNotEmpty) {
@@ -798,7 +871,7 @@ class _MainScreenState extends State<MainScreen> {
     setState(() {});
   }
 
-  Future<void> addTransaction(double amount, String category) async {
+ Future<void> addTransaction(double amount, String category) async {
     DateTime finalDate;
 
     if (viewMode == "Daily") {
@@ -826,24 +899,20 @@ class _MainScreenState extends State<MainScreen> {
       'id': null,
     };
 
-    // Pehle Firebase me save karo aur document id lo
-    final docRef = await FirebaseFirestore.instance.collection('transactions').add({
-      'amount': newTx['amount'],
-      'category': newTx['category'],
-      'date': (newTx['date'] as DateTime).toIso8601String(),
-      'mode': newTx['mode'],
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    try {
+      // ✅ user-wise firestore save
+      await _saveTransactionToFirestore(newTx);
 
-    newTx['id'] = docRef.id;
+      setState(() {
+        transactions.add(newTx);
+        categoryColors.putIfAbsent(category, () => Colors.teal);
+      });
 
-    setState(() {
-      transactions.add(newTx);
-      categoryColors.putIfAbsent(category, () => Colors.teal);
-    });
-
-    await saveData();
-    debugPrint("🔥 Saved with id: ${docRef.id}");
+      await saveData();
+      debugPrint("🔥 Saved for user: $userId with id: ${newTx['id']}");
+    } catch (e) {
+      debugPrint("❌ addTransaction Error: $e");
+    }
   }
 
   double get total {
@@ -1316,6 +1385,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Widget buildReport() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final user = FirebaseAuth.instance.currentUser;
     final reportList = getCurrentReportList();
     final weeks = getWeeksForMonth(DateTime.now().year, selectedMonth);
 
@@ -1355,7 +1425,11 @@ class _MainScreenState extends State<MainScreen> {
                   children: [
                     Text(
                       "Expense Report",
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
                     ),
 
                     Row(
@@ -1868,6 +1942,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget buildProfile() {
+    final user = FirebaseAuth.instance.currentUser;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final double totalExpense = transactions.fold(
       0.0,
@@ -1903,46 +1978,52 @@ class _MainScreenState extends State<MainScreen> {
                     ),
                   ),
                   child: ClipOval(
-                    child: currentUser != null &&
-                            currentUser!.photoURL != null &&
-                            currentUser!.photoURL!.isNotEmpty
-                        ? Image.network(
-                            currentUser!.photoURL!,
-                            fit: BoxFit.cover,
-                            width: 68,
-                            height: 68,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Center(
-                                child: Text(
-                                  (currentUser?.displayName?.isNotEmpty ?? false)
-                                      ? currentUser!.displayName![0].toUpperCase()
-                                      : "U",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              );
-                            },
-                          )
-                        : Center(
-                            child: Text(
-                              (currentUser?.displayName?.isNotEmpty ?? false)
-                                  ? currentUser!.displayName![0].toUpperCase()
-                                  : "U",
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
+                   child: user != null &&
+                      user.photoURL != null &&
+                      user.photoURL!.isNotEmpty
+                  ? Image.network(
+                      user.photoURL!,
+                      fit: BoxFit.cover,
+                      width: 68,
+                      height: 68,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return const Center(
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return Center(
+                          child: Text(
+                            (user.displayName?.isNotEmpty ?? false)
+                                ? user.displayName![0].toUpperCase()
+                                : "U",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
+                        );
+                      },
+                    )
+                  : Center(
+                      child: Text(
+                        (user?.displayName?.isNotEmpty ?? false)
+                            ? user!.displayName![0].toUpperCase()
+                            : "U",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
                 SizedBox(height: 12),
                 Text(
-                  currentUser?.displayName ?? "Daily Kharcha User",
+                  user?.displayName ?? "Daily Kharcha User",
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -1951,7 +2032,7 @@ class _MainScreenState extends State<MainScreen> {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  currentUser?.email ?? "Track your expenses smartly",
+                  user?.email ?? "Track your expenses smartly",
                   style: TextStyle(
                     color: Colors.white70,
                     fontSize: 13,
