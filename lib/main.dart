@@ -22,6 +22,8 @@ Future<void> main() async {
 }
 
 class DailyKharchaApp extends StatefulWidget {
+  const DailyKharchaApp({super.key});
+
   @override
   State<DailyKharchaApp> createState() => _DailyKharchaAppState();
 }
@@ -645,7 +647,7 @@ class _MainScreenState extends State<MainScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                '${reportView} Report',
+                '$reportView Report',
                 style: const TextStyle(
                   fontSize: 13,
                   color: Colors.black54,
@@ -1180,7 +1182,7 @@ class _MainScreenState extends State<MainScreen> {
                                 curve: Curves.easeOutBack,
                                 builder: (context, scale, child) {
                                   return Transform.scale(
-                                    scale: scale as double,
+                                    scale: scale,
                                     child: child,
                                   );
                                 },
@@ -2273,7 +2275,7 @@ class _MainScreenState extends State<MainScreen> {
                     Expanded(
                       child: ListView.separated(
                         itemCount: categories.length,
-                        separatorBuilder: (_, __) => SizedBox(height: 10),
+                        separatorBuilder: (_, _) => SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final category = categories[index];
                           final currentColor = categoryColors[category] ?? Colors.teal;
@@ -2596,7 +2598,7 @@ class _MainScreenState extends State<MainScreen> {
                   Expanded(
                     child: ListView.separated(
                       itemCount: relatedTransactions.length,
-                      separatorBuilder: (_, __) => SizedBox(height: 8),
+                      separatorBuilder: (_, _) => SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final tx = relatedTransactions[index];
                         final date = tx['date'] as DateTime;
@@ -2960,7 +2962,7 @@ class _MainScreenState extends State<MainScreen> {
                         )
                       : ListView.separated(
                           itemCount: categoryTransactions.length,
-                          separatorBuilder: (_, __) => SizedBox(height: 10),
+                          separatorBuilder: (_, _) => SizedBox(height: 10),
                           itemBuilder: (context, index) {
                             final tx = categoryTransactions[index];
                             final date = tx['date'] as DateTime;
@@ -3430,7 +3432,7 @@ class _MainScreenState extends State<MainScreen> {
                             ),
                           ),
                         );
-                      }).toList(),
+                      }),
                       GestureDetector(
                         onTap: () async {
                           double amount = double.tryParse(amountController.text) ?? 0;
@@ -3505,7 +3507,7 @@ class _MainScreenState extends State<MainScreen> {
                       curve: Curves.easeOutBack,
                       builder: (context, scale, child) {
                         return Transform.scale(
-                          scale: scale as double,
+                          scale: scale,
                           child: child,
                         );
                       },
