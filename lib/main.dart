@@ -9,7 +9,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
+import 'services/notification_service.dart';
 
+
+GoogleSignIn buildGoogleSignIn() {
+  return GoogleSignIn(
+    clientId: kIsWeb
+        ? "YAHAN_APNI_WEB_CLIENT_ID_DALO.apps.googleusercontent.com"
+        : null,
+    scopes: ['email'],
+  );
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,6 +30,8 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  await NotificationService.init();
 
   runApp(DailyKharchaApp());
 }
@@ -98,11 +113,8 @@ class _LoginScreenState extends State<LoginScreen>
 
   Future<void> signInWithGoogle() async {
     try {
-      final GoogleSignIn googleSignIn = GoogleSignIn(
-        scopes: ['email'],
-      );
+      final GoogleSignIn googleSignIn = buildGoogleSignIn();
 
-      // 🔥 account picker force karega
       await googleSignIn.signOut();
 
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
@@ -432,6 +444,10 @@ class _MainScreenState extends State<MainScreen> {
   int currentIndex = 0;
   String? get userId => FirebaseAuth.instance.currentUser?.uid;
 
+  bool reminderEnabled = false;
+  String reminderText = "Aaj ka transaction add karna mat bhoolna";
+  TimeOfDay reminderTime = const TimeOfDay(hour: 20, minute: 0);
+
   List<Map<String, dynamic>> transactions = [];
   List<String> categories = ["Food", "Travel", "Shopping", "Petrol"];
 
@@ -485,6 +501,208 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+    void openReminderDialog() {
+    final TextEditingController reminderController =
+        TextEditingController(text: reminderText);
+
+    bool localReminderEnabled = reminderEnabled;
+    TimeOfDay localReminderTime = reminderTime;
+
+    showDialog(
+      context: context,
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      "Transaction Reminder",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Enable Reminder",
+                          style: TextStyle(
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Switch(
+                          value: localReminderEnabled,
+                          onChanged: (val) {
+                            setDialogState(() {
+                              localReminderEnabled = val;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    TextField(
+                      controller: reminderController,
+                      style: const TextStyle(color: Colors.black),
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        hintText: "Enter custom reminder text",
+                        filled: true,
+                        fillColor: Colors.grey.shade100,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    GestureDetector(
+                      onTap: () async {
+                        final picked = await showTimePicker(
+                          context: context,
+                          initialTime: localReminderTime,
+                        );
+
+                        if (picked != null) {
+                          setDialogState(() {
+                            localReminderTime = picked;
+                          });
+                        }
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          "Reminder Time: ${localReminderTime.hour.toString().padLeft(2, '0')}:${localReminderTime.minute.toString().padLeft(2, '0')}",
+                          style: const TextStyle(
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => Navigator.pop(context),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  "Cancel",
+                                  style: TextStyle(
+                                    color: Colors.black87,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () async {
+                              setState(() {
+                                reminderEnabled = localReminderEnabled;
+                                reminderText = reminderController.text.trim().isEmpty
+                                    ? "Aaj ka transaction add karna mat bhoolna"
+                                    : reminderController.text.trim();
+                                reminderTime = localReminderTime;
+                              });
+
+                              await saveData();
+
+                              if (reminderEnabled) {
+                                await NotificationService.scheduleDailyReminder(
+                                  hour: reminderTime.hour,
+                                  minute: reminderTime.minute,
+                                  title: "Daily Kharcha Reminder",
+                                  body: reminderText,
+                                );
+                              } else {
+                                await NotificationService.cancelReminder();
+                              }
+
+                              Navigator.pop(context);
+
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    reminderEnabled
+                                        ? "Reminder set successfully"
+                                        : "Reminder turned off",
+                                  ),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  "Save",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> deleteTransaction(Map<String, dynamic> tx) async {
     try {
       if (userId == null) {
@@ -536,9 +754,9 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> signOutUser() async {
     try {
-      final GoogleSignIn googleSignIn = GoogleSignIn();
+      final GoogleSignIn googleSignIn = buildGoogleSignIn();
 
-      await googleSignIn.signOut(); // 🔥 important
+      await googleSignIn.signOut();
       await FirebaseAuth.instance.signOut();
 
       debugPrint("✅ User signed out");
@@ -799,12 +1017,23 @@ class _MainScreenState extends State<MainScreen> {
       await prefs.setInt('selectedWeekIndex', selectedWeekIndex);
       await prefs.setBool('showPercentage', showPercentage);
       await prefs.setString('categoryColors', jsonEncode(encodedCategoryColors));
+      await prefs.setBool('reminderEnabled', reminderEnabled);
+      await prefs.setString('reminderText', reminderText);
+      await prefs.setInt('reminderHour', reminderTime.hour);
+      await prefs.setInt('reminderMinute', reminderTime.minute);
     }
 
     Future<void> loadData() async {
       transactions = [];
 
       final prefs = await SharedPreferences.getInstance();
+      reminderEnabled = prefs.getBool('reminderEnabled') ?? false;
+      reminderText = prefs.getString('reminderText') ??
+          "Aaj ka transaction add karna mat bhoolna";
+
+      final reminderHour = prefs.getInt('reminderHour') ?? 20;
+      final reminderMinute = prefs.getInt('reminderMinute') ?? 0;
+      reminderTime = TimeOfDay(hour: reminderHour, minute: reminderMinute);
 
       final currentUid = FirebaseAuth.instance.currentUser?.uid;
       if (currentUid == null) {
@@ -2102,6 +2331,15 @@ class _MainScreenState extends State<MainScreen> {
               });
               openLimitDialog(context);
             },
+          ),
+          SizedBox(height: 10),
+          _profileTile(
+            icon: Icons.notifications_active_rounded,
+            title: "Transaction Reminder",
+            value: reminderEnabled
+                ? "${reminderTime.hour.toString().padLeft(2, '0')}:${reminderTime.minute.toString().padLeft(2, '0')}"
+                : "Off",
+            onTap: () => openReminderDialog(),
           ),
           SizedBox(height: 10),
           _profileToggleTile(

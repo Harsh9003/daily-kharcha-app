@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -143,6 +144,10 @@ class PdfService {
   }) async {
     final pdf = pw.Document();
 
+    final fontData =
+        await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+    final baseFont = pw.Font.ttf(fontData);
+
     final totalAmount = reportList.fold(
       0.0,
       (sum, tx) => sum + (tx['amount'] as double),
@@ -210,8 +215,8 @@ class PdfService {
         pageTheme: pw.PageTheme(
           margin: const pw.EdgeInsets.all(28),
           theme: pw.ThemeData.withFont(
-            base: pw.Font.helvetica(),
-            bold: pw.Font.helveticaBold(),
+            base: baseFont,
+            bold: baseFont,
           ),
         ),
         build: (context) => [
@@ -260,8 +265,14 @@ class PdfService {
                     pw.Column(
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
-                        _pdfLabelValue('Generated', _formatDateForPdf(DateTime.now())),
-                        _pdfLabelValue('Transactions', '$totalTransactions'),
+                        _pdfLabelValue(
+                          'Generated',
+                          _formatDateForPdf(DateTime.now()),
+                        ),
+                        _pdfLabelValue(
+                          'Transactions',
+                          '$totalTransactions',
+                        ),
                       ],
                     ),
                   ],
