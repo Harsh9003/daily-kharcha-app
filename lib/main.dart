@@ -13,7 +13,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'services/notification_service.dart';
-
+import 'services/reset_service.dart';
 
 GoogleSignIn buildGoogleSignIn() {
   return GoogleSignIn(
@@ -499,6 +499,169 @@ class _MainScreenState extends State<MainScreen> {
     } catch (e) {
       debugPrint("❌ Firestore Error: $e");
     }
+  }
+
+  void openResetWarningDialog() {
+    showDialog(
+      context: context,
+      builder: (_) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Container(
+            padding: EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                /// ⚠️ Icon
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.redAccent,
+                    size: 34,
+                  ),
+                ),
+
+                SizedBox(height: 16),
+
+                /// Title
+                Text(
+                  "Reset All Data?",
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+
+                SizedBox(height: 10),
+
+                /// Description
+                Text(
+                  "All your transactions will be permanently deleted.\nYour categories will reset to default.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.black54,
+                    fontSize: 13.5,
+                    height: 1.5,
+                  ),
+                ),
+
+                SizedBox(height: 18),
+
+                /// Warning box
+                Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.red.shade100),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, color: Colors.redAccent),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "This action cannot be undone.",
+                          style: TextStyle(
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                SizedBox(height: 20),
+
+                /// Buttons
+                Row(
+                  children: [
+                    /// Cancel
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          padding: EdgeInsets.symmetric(vertical: 13),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Center(
+                            child: Text(
+                              "Cancel",
+                              style: TextStyle(
+                                color: Colors.black87,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(width: 10),
+
+                    /// Delete
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () async {
+                          Navigator.pop(context);
+
+                          await resetAllUserData();
+
+                          showPremiumSnackBar(
+                            message: "All data reset successfully",
+                            icon: Icons.restart_alt_rounded,
+                            color: Colors.redAccent,
+                          );
+                        },
+                        child: Container(
+                          padding: EdgeInsets.symmetric(vertical: 13),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.redAccent,
+                                Color(0xFFB00020),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Center(
+                            child: Text(
+                              "Delete",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void showPremiumSnackBar({
@@ -1026,6 +1189,31 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  Future<void> resetAllUserData() async {
+    await ResetService.deleteAllUserTransactions();
+
+    setState(() {
+      transactions.clear();
+
+      categories = ["Food", "Travel", "Shopping", "Petrol"];
+
+      categoryColors = {
+        "Food": Colors.orange,
+        "Travel": Colors.blue,
+        "Shopping": Colors.purple,
+        "Petrol": Colors.red,
+      };
+
+      dailyLimit = 0;
+      monthlyLimit = 0;
+      selectedWeekIndex = 0;
+      showPercentage = false;
+      reportChartType = "List";
+      reportView = "Monthly";
+    });
+
+    await saveData();
+  }
 
   Future<void> _loadTransactionsFromFirestore() async {
     try {
@@ -2493,6 +2681,13 @@ class _MainScreenState extends State<MainScreen> {
             },
           ),
           SizedBox(height: 18),
+          _profileTile(
+            icon: Icons.delete_forever_rounded,
+            title: "Reset All Data",
+            value: "Permanent",
+            onTap: () => openResetWarningDialog(),
+          ),
+          SizedBox(height: 18),
           Text(
             "About",
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
@@ -2513,7 +2708,7 @@ class _MainScreenState extends State<MainScreen> {
           _profileTile(
             icon: Icons.info_outline_rounded,
             title: "Version",
-            value: "1.0.0",
+            value: "1.0.1",
           ),
         ],
       ),
