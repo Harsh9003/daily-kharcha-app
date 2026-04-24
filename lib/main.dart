@@ -18,7 +18,7 @@ import 'services/notification_service.dart';
 GoogleSignIn buildGoogleSignIn() {
   return GoogleSignIn(
     clientId: kIsWeb
-        ? "YAHAN_APNI_WEB_CLIENT_ID_DALO.apps.googleusercontent.com"
+        ? "899253420996-4tk9d7b09045eh327krupkjvef5n0ige.apps.googleusercontent.com"
         : null,
     scopes: ['email'],
   );
@@ -501,6 +501,72 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  void showPremiumSnackBar({
+    required String message,
+    IconData icon = Icons.check_circle_rounded,
+    Color color = const Color(0xFF2ECC71),
+  }) {
+    ScaffoldMessenger.of(context).clearSnackBars();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        duration: const Duration(seconds: 2),
+        margin: const EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: 20,
+        ),
+        content: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [
+                Color(0xFF1E1E2C),
+                Color(0xFF2C2C54),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withOpacity(0.10)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.25),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: color, size: 21),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
     void openReminderDialog() {
     final TextEditingController reminderController =
         TextEditingController(text: reminderText);
@@ -702,6 +768,50 @@ class _MainScreenState extends State<MainScreen> {
       },
     );
   }
+
+  Future<void> deleteCategoryTransactionsFromFirestore(String category) async {
+    if (userId == null) return;
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('transactions')
+        .where('category', isEqualTo: category)
+        .get();
+
+    final batch = FirebaseFirestore.instance.batch();
+
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+
+    await batch.commit();
+  }
+
+  Future<void> updateCategoryNameInFirestore(
+    String oldCategory,
+    String newCategory,
+  ) async {
+    if (userId == null) return;
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('transactions')
+        .where('category', isEqualTo: oldCategory)
+        .get();
+
+    final batch = FirebaseFirestore.instance.batch();
+
+    for (final doc in snapshot.docs) {
+      batch.update(doc.reference, {
+        'category': newCategory,
+      });
+    }
+
+    await batch.commit();
+  }
+
 
   Future<void> deleteTransaction(Map<String, dynamic> tx) async {
     try {
@@ -2372,7 +2482,15 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icons.category_rounded,
             title: "Total Categories",
             value: "${categories.length}",
-            onTap: () => openCategoryManagerDialog(),
+            onTap: () {
+              showPremiumSnackBar(
+                message: "Category manager opened",
+                icon: Icons.category_rounded,
+                color: Colors.amberAccent,
+              );
+
+              openCategoryManagerDialog();
+            },
           ),
           SizedBox(height: 18),
           Text(
@@ -2403,34 +2521,32 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void openCategoryManagerDialog() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final TextEditingController categoryController = TextEditingController();
 
-    final List<Color> presetColors = [
-      Colors.orange,
-      Colors.blue,
-      Colors.purple,
-      Colors.red,
-      Colors.green,
-      Colors.teal,
-      Colors.pink,
-      Colors.brown,
-      Colors.indigo,
-      Colors.cyan,
-    ];
+    String? dialogMessage;
+    IconData dialogIcon = Icons.check_circle_rounded;
+    Color dialogColor = Colors.greenAccent;
 
     showDialog(
       context: context,
       builder: (_) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            void showParentMessage(String message, IconData icon, Color color) {
+              setDialogState(() {
+                dialogMessage = message;
+                dialogIcon = icon;
+                dialogColor = color;
+              });
+            }
+
             return Dialog(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Container(
                 constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.8,
+                  maxHeight: MediaQuery.of(context).size.height * 0.82,
                 ),
                 padding: EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -2457,7 +2573,45 @@ class _MainScreenState extends State<MainScreen> {
                         fontSize: 13,
                       ),
                     ),
+
+                    if (dialogMessage != null) ...[
+                      SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Color(0xFF1E1E2C),
+                              Color(0xFF2C2C54),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: dialogColor.withOpacity(0.35),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(dialogIcon, color: dialogColor, size: 20),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                dialogMessage!,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
                     SizedBox(height: 16),
+
                     Row(
                       children: [
                         Expanded(
@@ -2477,24 +2631,50 @@ class _MainScreenState extends State<MainScreen> {
                         ),
                         SizedBox(width: 10),
                         GestureDetector(
-                          onTap: () {
+                          onTap: () async {
                             final newCategory = categoryController.text.trim();
-                            if (newCategory.isEmpty || categories.contains(newCategory)) {
+
+                            if (newCategory.isEmpty) {
+                              showParentMessage(
+                                "Category name enter karo",
+                                Icons.info_rounded,
+                                Colors.orangeAccent,
+                              );
                               return;
                             }
+
+                            if (categories.contains(newCategory)) {
+                              showParentMessage(
+                                "$newCategory already exists",
+                                Icons.warning_rounded,
+                                Colors.orangeAccent,
+                              );
+                              return;
+                            }
+
                             setState(() {
                               categories.add(newCategory);
                               categoryColors[newCategory] = Colors.teal;
                             });
-                            setDialogState(() {});
-                            saveData();
+
+                            await saveData();
                             categoryController.clear();
+                            setDialogState(() {});
+
+                            showParentMessage(
+                              "$newCategory category added",
+                              Icons.category_rounded,
+                              Colors.amberAccent,
+                            );
                           },
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
-                                colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                                colors: [
+                                  Color(0xFF2C2C54),
+                                  Color(0xFF40407A),
+                                ],
                               ),
                               borderRadius: BorderRadius.circular(12),
                             ),
@@ -2506,21 +2686,30 @@ class _MainScreenState extends State<MainScreen> {
                               ),
                             ),
                           ),
-                        )
+                        ),
                       ],
                     ),
+
                     SizedBox(height: 18),
+
                     Expanded(
                       child: ListView.separated(
                         itemCount: categories.length,
                         separatorBuilder: (_, _) => SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final category = categories[index];
-                          final currentColor = categoryColors[category] ?? Colors.teal;
-                          final count = transactions.where((tx) => tx['category'] == category).length;
+                          final currentColor =
+                              categoryColors[category] ?? Colors.teal;
+                          final count = transactions
+                              .where((tx) => tx['category'] == category)
+                              .length;
 
                           return GestureDetector(
-                            onTap: () => openCategoryEditDialog(category, setDialogState),
+                            onTap: () => openCategoryEditDialog(
+                              category,
+                              setDialogState,
+                              showParentMessage,
+                            ),
                             child: Container(
                               padding: EdgeInsets.all(12),
                               decoration: BoxDecoration(
@@ -2571,7 +2760,9 @@ class _MainScreenState extends State<MainScreen> {
                         },
                       ),
                     ),
+
                     SizedBox(height: 14),
+
                     GestureDetector(
                       onTap: () => Navigator.pop(context),
                       child: Container(
@@ -2579,7 +2770,10 @@ class _MainScreenState extends State<MainScreen> {
                         padding: EdgeInsets.symmetric(vertical: 12),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                            colors: [
+                              Color(0xFF2C2C54),
+                              Color(0xFF40407A),
+                            ],
                           ),
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -2593,7 +2787,7 @@ class _MainScreenState extends State<MainScreen> {
                           ),
                         ),
                       ),
-                    )
+                    ),
                   ],
                 ),
               ),
@@ -2604,7 +2798,12 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  void openCategoryEditDialog(String oldCategory, void Function(void Function()) refreshParent) {
+
+  void openCategoryEditDialog(
+    String oldCategory,
+    void Function(void Function()) refreshParent,
+    void Function(String message, IconData icon, Color color) showParentMessage,
+  ) {
     final TextEditingController renameController =
         TextEditingController(text: oldCategory);
 
@@ -2651,6 +2850,7 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                     ),
                     SizedBox(height: 14),
+
                     TextField(
                       controller: renameController,
                       style: TextStyle(color: Colors.black),
@@ -2664,7 +2864,9 @@ class _MainScreenState extends State<MainScreen> {
                         ),
                       ),
                     ),
+
                     SizedBox(height: 14),
+
                     Text(
                       "Choose Color",
                       style: TextStyle(
@@ -2672,12 +2874,15 @@ class _MainScreenState extends State<MainScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+
                     SizedBox(height: 10),
+
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: presetColors.map((color) {
                         final isSelected = selectedColor.value == color.value;
+
                         return GestureDetector(
                           onTap: () {
                             setDialogState(() {
@@ -2699,24 +2904,45 @@ class _MainScreenState extends State<MainScreen> {
                         );
                       }).toList(),
                     ),
+
                     SizedBox(height: 18),
+
                     Row(
                       children: [
                         Expanded(
                           child: GestureDetector(
-                            onTap: () {
+                            onTap: () async {
                               final newName = renameController.text.trim();
-                              if (newName.isEmpty) return;
-                              if (newName != oldCategory && categories.contains(newName)) return;
+
+                              if (newName.isEmpty) {
+                                showParentMessage(
+                                  "Category name enter karo",
+                                  Icons.info_rounded,
+                                  Colors.orangeAccent,
+                                );
+                                return;
+                              }
+
+                              if (newName != oldCategory &&
+                                  categories.contains(newName)) {
+                                showParentMessage(
+                                  "$newName already exists",
+                                  Icons.warning_rounded,
+                                  Colors.orangeAccent,
+                                );
+                                return;
+                              }
 
                               setState(() {
-                                final categoryIndex = categories.indexOf(oldCategory);
+                                final categoryIndex =
+                                    categories.indexOf(oldCategory);
+
                                 if (categoryIndex != -1) {
                                   categories[categoryIndex] = newName;
                                 }
 
-                                final oldColor = categoryColors.remove(oldCategory) ?? selectedColor;
-                                categoryColors[newName] = selectedColor == oldColor ? oldColor : selectedColor;
+                                categoryColors.remove(oldCategory);
+                                categoryColors[newName] = selectedColor;
 
                                 for (var tx in transactions) {
                                   if (tx['category'] == oldCategory) {
@@ -2725,15 +2951,29 @@ class _MainScreenState extends State<MainScreen> {
                                 }
                               });
 
-                              saveData();
-                              refreshParent(() {});
+                              await updateCategoryNameInFirestore(
+                                oldCategory,
+                                newName,
+                              );
+
+                              await saveData();
+                              
                               Navigator.pop(context);
+
+                              showParentMessage(
+                                "Category renamed to $newName",
+                                Icons.drive_file_rename_outline_rounded,
+                                Colors.lightBlueAccent,
+                              );
                             },
                             child: Container(
                               padding: EdgeInsets.symmetric(vertical: 12),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
-                                  colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                                  colors: [
+                                    Color(0xFF2C2C54),
+                                    Color(0xFF40407A),
+                                  ],
                                 ),
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -2749,12 +2989,21 @@ class _MainScreenState extends State<MainScreen> {
                             ),
                           ),
                         ),
+
                         SizedBox(width: 10),
+
                         Expanded(
                           child: GestureDetector(
                             onTap: () {
                               Navigator.pop(context);
-                              openDeleteCategoryDecisionDialog(oldCategory, refreshParent);
+
+                              Future.delayed(Duration(milliseconds: 150), () {
+                                openDeleteCategoryDecisionDialog(
+                                  oldCategory,
+                                  refreshParent,
+                                  showParentMessage,
+                                );
+                              });
                             },
                             child: Container(
                               padding: EdgeInsets.symmetric(vertical: 12),
@@ -2787,11 +3036,13 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  void openDeleteCategoryDecisionDialog(String category, void Function(void Function()) refreshParent) {
+  void openDeleteCategoryDecisionDialog(
+    String category,
+    void Function(void Function()) refreshParent,
+    void Function(String message, IconData icon, Color color) showParentMessage,
+  ) {
     final relatedTransactions =
         transactions.where((tx) => tx['category'] == category).toList();
-    final TextEditingController renameController =
-        TextEditingController(text: category);
 
     showDialog(
       context: context,
@@ -2821,7 +3072,9 @@ class _MainScreenState extends State<MainScreen> {
                     color: Colors.black87,
                   ),
                 ),
+
                 SizedBox(height: 8),
+
                 Text(
                   relatedTransactions.isEmpty
                       ? "No transactions are linked with this category."
@@ -2831,7 +3084,9 @@ class _MainScreenState extends State<MainScreen> {
                     fontSize: 13,
                   ),
                 ),
+
                 SizedBox(height: 14),
+
                 if (relatedTransactions.isNotEmpty)
                   Expanded(
                     child: ListView.separated(
@@ -2840,6 +3095,7 @@ class _MainScreenState extends State<MainScreen> {
                       itemBuilder: (context, index) {
                         final tx = relatedTransactions[index];
                         final date = tx['date'] as DateTime;
+
                         return Container(
                           padding: EdgeInsets.all(12),
                           decoration: BoxDecoration(
@@ -2883,65 +3139,27 @@ class _MainScreenState extends State<MainScreen> {
                       },
                     ),
                   ),
+
                 if (relatedTransactions.isEmpty) SizedBox(height: 8),
+
                 SizedBox(height: 14),
-                TextField(
-                  controller: renameController,
-                  style: TextStyle(color: Colors.black),
-                  decoration: InputDecoration(
-                    labelText: "Rename instead of delete",
-                    hintText: "Enter new category name",
-                    filled: true,
-                    fillColor: Colors.grey.shade100,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-                SizedBox(height: 14),
+
                 Row(
                   children: [
                     Expanded(
                       child: GestureDetector(
-                        onTap: () {
-                          final newName = renameController.text.trim();
-                          if (newName.isEmpty) return;
-                          if (newName != category && categories.contains(newName)) return;
-
-                          setState(() {
-                            final categoryIndex = categories.indexOf(category);
-                            if (categoryIndex != -1) {
-                              categories[categoryIndex] = newName;
-                            }
-
-                            final oldColor = categoryColors.remove(category) ?? Colors.teal;
-                            categoryColors[newName] = oldColor;
-
-                            for (var tx in transactions) {
-                              if (tx['category'] == category) {
-                                tx['category'] = newName;
-                              }
-                            }
-                          });
-
-                          saveData();
-                          refreshParent(() {});
-                          Navigator.pop(context);
-                        },
+                        onTap: () => Navigator.pop(context),
                         child: Container(
                           padding: EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
-                            ),
+                            color: Colors.grey.shade200,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Center(
                             child: Text(
-                              "Rename",
+                              "Cancel",
                               style: TextStyle(
-                                color: Colors.white,
+                                color: Colors.black87,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -2949,18 +3167,33 @@ class _MainScreenState extends State<MainScreen> {
                         ),
                       ),
                     ),
+
                     SizedBox(width: 10),
+
                     Expanded(
                       child: GestureDetector(
-                        onTap: () {
+                        onTap: () async {
+                          await deleteCategoryTransactionsFromFirestore(category);
+
                           setState(() {
                             categories.remove(category);
                             categoryColors.remove(category);
-                            transactions.removeWhere((tx) => tx['category'] == category);
+                            transactions.removeWhere(
+                              (tx) => tx['category'] == category,
+                            );
                           });
-                          saveData();
-                          refreshParent(() {});
+
+                          await saveData();
+
                           Navigator.pop(context);
+
+                          Future.delayed(const Duration(milliseconds: 200), () {
+                            showParentMessage(
+                              "$category deleted successfully",
+                              Icons.delete_rounded,
+                              Colors.redAccent,
+                            );
+                          });
                         },
                         child: Container(
                           padding: EdgeInsets.symmetric(vertical: 12),
@@ -3597,13 +3830,13 @@ class _MainScreenState extends State<MainScreen> {
     TextEditingController amountController = TextEditingController();
     TextEditingController customController = TextEditingController();
 
-    String category = categories[0];
+    String category = categories.isNotEmpty ? categories[0] : "";
     bool isCustom = false;
 
     showDialog(
       context: context,
       builder: (context) {
-        return StatefulBuilder(builder: (context, setState) {
+        return StatefulBuilder(builder: (context, setDialogState) {
           return Dialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             child: Container(
@@ -3612,108 +3845,26 @@ class _MainScreenState extends State<MainScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    "Add Expense",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  TextField(
-                    controller: amountController,
-                    keyboardType: TextInputType.number,
-                    style: TextStyle(color: Colors.black),
-                    decoration: InputDecoration(
-                      hintText: "Enter Amount",
-                      filled: true,
-                      fillColor: Colors.grey.shade100,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      "Add Expense",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
                       ),
                     ),
-                  ),
-                  SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ...categories.map((cat) {
-                        bool isSelected = category == cat;
+                    SizedBox(height: 16),
 
-                        return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              category = cat;
-                              isCustom = false;
-                            });
-                          },
-                          child: AnimatedContainer(
-                            duration: Duration(milliseconds: 200),
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: isSelected ? Color(0xFF2C2C54) : Colors.grey.shade200,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              cat,
-                              style: TextStyle(
-                                color: isSelected ? Colors.white : Colors.black,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                      GestureDetector(
-                        onTap: () async {
-                          double amount = double.tryParse(amountController.text) ?? 0;
-
-                          String finalCategory =
-                              isCustom ? customController.text.trim() : category;
-
-                          if (amount > 0 && finalCategory.isNotEmpty) {
-                            if (!categories.contains(finalCategory)) {
-                              categories.add(finalCategory);
-                              categoryColors[finalCategory] = Colors.teal;
-                            }
-
-                            await addTransaction(amount, finalCategory);
-                          }
-
-                          Navigator.pop(context);
-                        },
-                        child: AnimatedContainer(
-                          duration: Duration(milliseconds: 200),
-                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: isCustom ? Colors.orange : Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            "Custom",
-                            style: TextStyle(
-                              color: isCustom ? Colors.white : Colors.black,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 10),
-                  if (isCustom)
                     TextField(
-                      controller: customController,
+                      controller: amountController,
+                      keyboardType: TextInputType.number,
                       style: TextStyle(color: Colors.black),
                       decoration: InputDecoration(
-                        hintText: "Custom Category",
+                        hintText: "Enter Amount",
                         filled: true,
                         fillColor: Colors.grey.shade100,
                         border: OutlineInputBorder(
@@ -3722,31 +3873,114 @@ class _MainScreenState extends State<MainScreen> {
                         ),
                       ),
                     ),
-                  SizedBox(height: 20),
-                  GestureDetector(
-                    onTap: () {
-                      double amount = double.tryParse(amountController.text) ?? 0;
-                      String finalCategory = isCustom ? customController.text.trim() : category;
 
-                      if (amount > 0 && finalCategory.isNotEmpty) {
-                        if (!categories.contains(finalCategory)) {
-                          categories.add(finalCategory);
-                          categoryColors[finalCategory] = Colors.teal;
+                    SizedBox(height: 12),
+
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ...categories.map((cat) {
+                          bool isSelected = !isCustom && category == cat;
+
+                          return GestureDetector(
+                            onTap: () {
+                              setDialogState(() {
+                                category = cat;
+                                isCustom = false;
+                              });
+                            },
+                            child: AnimatedContainer(
+                              duration: Duration(milliseconds: 200),
+                              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: isSelected ? Color(0xFF2C2C54) : Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                cat,
+                                style: TextStyle(
+                                  color: isSelected ? Colors.white : Colors.black,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+
+                        GestureDetector(
+                          onTap: () {
+                            setDialogState(() {
+                              isCustom = true;
+                              category = "";
+                            });
+                          },
+                          child: AnimatedContainer(
+                            duration: Duration(milliseconds: 200),
+                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isCustom ? Colors.orange : Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              "Custom",
+                              style: TextStyle(
+                                color: isCustom ? Colors.white : Colors.black,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    if (isCustom) ...[
+                      SizedBox(height: 12),
+                      TextField(
+                        controller: customController,
+                        style: TextStyle(color: Colors.black),
+                        decoration: InputDecoration(
+                          hintText: "Custom Category",
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ],
+
+                    SizedBox(height: 20),
+
+                    GestureDetector(
+                      onTap: () async {
+                        double amount = double.tryParse(amountController.text.trim()) ?? 0;
+                        String finalCategory =
+                            isCustom ? customController.text.trim() : category;
+
+                        if (amount <= 0 || finalCategory.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text("Amount aur category dono fill karo")),
+                          );
+                          return;
                         }
-                        addTransaction(amount, finalCategory);
-                      }
 
-                      saveData();
-                      Navigator.pop(context);
-                    },
-                    child: TweenAnimationBuilder(
-                      tween: Tween(begin: 0.95, end: 1.0),
-                      duration: Duration(milliseconds: 300),
-                      curve: Curves.easeOutBack,
-                      builder: (context, scale, child) {
-                        return Transform.scale(
-                          scale: scale,
-                          child: child,
+                        if (!categories.contains(finalCategory)) {
+                          setState(() {
+                            categories.add(finalCategory);
+                            categoryColors[finalCategory] = Colors.teal;
+                          });
+                        }
+
+                        await addTransaction(amount, finalCategory);
+                        await saveData();
+
+                        Navigator.pop(context);
+
+                        showPremiumSnackBar(
+                          message: "Transaction added successfully",
+                          icon: Icons.receipt_long_rounded,
                         );
                       },
                       child: Container(
@@ -3768,9 +4002,9 @@ class _MainScreenState extends State<MainScreen> {
                           ),
                         ),
                       ),
-                    ),
-                  )
-                ],
+                    )
+                  ],
+                ),
               ),
             ),
           );
