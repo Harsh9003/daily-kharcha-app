@@ -14,11 +14,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "899253420996-5t6211n3pvco7g3qgpr3ueun613n1s8t.apps.googleusercontent.com",
+          "client_id": "899253420996-u0di7ecj3gckvssalp6jqtcp6s0emnmq.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.example.daily_kharcha",
-            "certificate_hash": "af767518b7357cb1ac7888d59d8354a2ea606edc"
+            "certificate_hash": "c7c2062850880a6caa5d35c1fa14063198bd7202"
           }
         },
         {
