@@ -44,11 +44,11 @@ class DailyKharchaApp extends StatefulWidget {
 }
 
 class _DailyKharchaAppState extends State<DailyKharchaApp> {
-  bool isDarkMode = true;
+  bool isDark = true;
 
   void toggleTheme() {
     setState(() {
-      isDarkMode = !isDarkMode;
+      isDark = !isDark;
     });
   }
 
@@ -56,21 +56,21 @@ class _DailyKharchaAppState extends State<DailyKharchaApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: isDarkMode ? ThemeData.dark() : ThemeData.light(),
+      theme: isDark ? ThemeData.dark() : ThemeData.light(),
       home: AuthGate(
-        isDarkMode: isDarkMode,
+        isDark: isDark,
         onThemeToggle: toggleTheme,
       ),
     );
   }
 }
 class AuthGate extends StatelessWidget {
-  final bool isDarkMode;
+  final bool isDark;
   final VoidCallback onThemeToggle;
 
   const AuthGate({
     super.key,
-    required this.isDarkMode,
+    required this.isDark,
     required this.onThemeToggle,
   });
 
@@ -88,7 +88,7 @@ class AuthGate extends StatelessWidget {
         if (snapshot.hasData) {
           
           return MainScreen(
-            isDarkMode: isDarkMode,
+            isDark: isDark,
             onThemeToggle: onThemeToggle,
           );
         }
@@ -425,12 +425,12 @@ class _LoginScreenState extends State<LoginScreen>
   }
 }
 class MainScreen extends StatefulWidget {
-  final bool isDarkMode;
+  final bool isDark;
   final VoidCallback onThemeToggle;
 
   const MainScreen({
     super.key,
-    required this.isDarkMode,
+    required this.isDark,
     required this.onThemeToggle,
   });
 
@@ -441,7 +441,8 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
 
   User? currentUser;
-  int currentIndex = 0;
+  static int savedCurrentIndex = 0;
+  int currentIndex = savedCurrentIndex;
   String? get userId => FirebaseAuth.instance.currentUser?.uid;
 
   bool reminderEnabled = false;
@@ -450,6 +451,10 @@ class _MainScreenState extends State<MainScreen> {
 
   List<Map<String, dynamic>> transactions = [];
   List<String> categories = ["Food", "Travel", "Shopping", "Petrol"];
+
+  int touchedPieIndex = -1;
+  String selectedPieCategory = "";
+  double selectedPieAmount = 0;
 
   Map<String, Color> categoryColors = {
     "Food": Colors.orange,
@@ -490,6 +495,7 @@ class _MainScreenState extends State<MainScreen> {
         'category': tx['category'],
         'date': (tx['date'] as DateTime).toIso8601String(),
         'mode': tx['mode'] ?? 'Cash',
+        'note': tx['note'] ?? '',
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -1238,6 +1244,7 @@ class _MainScreenState extends State<MainScreen> {
           'category': data['category'],
           'date': DateTime.parse(data['date']),
           'mode': data['mode'] ?? 'Cash',
+          'note': data['note'] ?? '',
         };
       }).toList();
 
@@ -1295,6 +1302,7 @@ class _MainScreenState extends State<MainScreen> {
           'category': tx['category'],
           'date': (tx['date'] as DateTime).toIso8601String(),
           'mode': tx['mode'],
+          'note': tx['note'] ?? '',
         };
       }).toList();
 
@@ -1348,6 +1356,7 @@ class _MainScreenState extends State<MainScreen> {
             'category': item['category'],
             'date': DateTime.parse(item['date']),
             'mode': item['mode'] ?? "Cash",
+            'note': item['note'] ?? '',
           };
         }).toList();
       }
@@ -1400,7 +1409,7 @@ class _MainScreenState extends State<MainScreen> {
     setState(() {});
   }
 
- Future<void> addTransaction(double amount, String category) async {
+ Future<void> addTransaction(double amount, String category, String note) async {
     DateTime finalDate;
 
     if (viewMode == "Daily") {
@@ -1425,11 +1434,11 @@ class _MainScreenState extends State<MainScreen> {
       'category': category,
       'date': finalDate,
       'mode': "Cash",
+      'note': note.trim(),
       'id': null,
     };
 
     try {
-      // ✅ user-wise firestore save
       await _saveTransactionToFirestore(newTx);
 
       setState(() {
@@ -1635,7 +1644,12 @@ class _MainScreenState extends State<MainScreen> {
         showUnselectedLabels: true,
         selectedFontSize: 12,
         unselectedFontSize: 12,
-        onTap: (i) => setState(() => currentIndex = i),
+        onTap: (i) {
+          setState(() {
+            currentIndex = i;
+            savedCurrentIndex = i;
+          });
+        },
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
           BottomNavigationBarItem(icon: Icon(Icons.pie_chart), label: "Reports"),
@@ -2335,30 +2349,79 @@ class _MainScreenState extends State<MainScreen> {
                           children: [
                             SizedBox(
                               height: 220,
-                              child: PieChart(
-                                PieChartData(
-                                  sectionsSpace: 2,
-                                  centerSpaceRadius: 40,
-                                  sections: categoryTotal.entries.map((entry) {
-                                    final percentage = totalAmount == 0
-                                        ? 0
-                                        : (entry.value / totalAmount) * 100;
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  PieChart(
+                                    PieChartData(
+                                      pieTouchData: PieTouchData(
+                                        touchCallback: (FlTouchEvent event, pieTouchResponse) {
+                                          if (!event.isInterestedForInteractions ||
+                                              pieTouchResponse == null ||
+                                              pieTouchResponse.touchedSection == null) {
+                                            setState(() {
+                                              touchedPieIndex = -1;
+                                              selectedPieCategory = "";
+                                              selectedPieAmount = 0;
+                                            });
+                                            return;
+                                          }
 
-                                    return PieChartSectionData(
-                                      value: entry.value,
-                                      title: totalAmount == 0
-                                          ? ""
-                                          : "${percentage.toStringAsFixed(1)}%",
-                                      radius: 70,
-                                      titleStyle: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
+                                          final index = pieTouchResponse.touchedSection!.touchedSectionIndex;
+                                          final entry = categoryTotal.entries.elementAt(index);
+
+                                          setState(() {
+                                            touchedPieIndex = index;
+                                            selectedPieCategory = entry.key;
+                                            selectedPieAmount = entry.value;
+                                          });
+                                        },
                                       ),
-                                      color: _getColor(entry.key.toString()),
-                                    );
-                                  }).toList(),
-                                ),
+                                      sectionsSpace: 2,
+                                      centerSpaceRadius: 40,
+                                      sections: categoryTotal.entries.map((entry) {
+                                        final percentage = totalAmount == 0
+                                            ? 0
+                                            : (entry.value / totalAmount) * 100;
+
+                                        return PieChartSectionData(
+                                          value: entry.value,
+                                          title: totalAmount == 0
+                                              ? ""
+                                              : "${percentage.toStringAsFixed(1)}%",
+                                          radius: touchedPieIndex == categoryTotal.keys.toList().indexOf(entry.key) ? 82 : 70,
+                                          titleStyle: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                          ),
+                                          color: _getColor(entry.key.toString()),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ),
+
+                                  Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        selectedPieCategory.isEmpty ? "Total" : selectedPieCategory,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: isDark ? Colors.white54 : Colors.black54,
+                                        ),
+                                      ),
+                                      Text(
+                                        "₹ ${(selectedPieCategory.isEmpty ? totalAmount : selectedPieAmount).toStringAsFixed(0)}",
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: isDark ? Colors.white : Colors.black87,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
                             ),
                             SizedBox(height: 20),
@@ -2614,6 +2677,7 @@ class _MainScreenState extends State<MainScreen> {
             onTap: () {
               setState(() {
                 viewMode = "Daily";
+                selectedDate = DateTime.now();
               });
               openLimitDialog(context);
             },
@@ -2640,14 +2704,7 @@ class _MainScreenState extends State<MainScreen> {
             onTap: () => openReminderDialog(),
           ),
           SizedBox(height: 10),
-          _profileToggleTile(
-            icon: Icons.dark_mode_rounded,
-            title: "Dark Mode",
-            value: widget.isDarkMode,
-            onChanged: (val) {
-              widget.onThemeToggle();
-            },
-          ),
+          _premiumDarkModeTile(),
           SizedBox(height: 18),
           Text(
             "Data",
@@ -2708,7 +2765,7 @@ class _MainScreenState extends State<MainScreen> {
           _profileTile(
             icon: Icons.info_outline_rounded,
             title: "Version",
-            value: "1.0.1",
+            value: "1.1.0",
           ),
         ],
       ),
@@ -3455,78 +3512,262 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  Widget _premiumDarkModeTile() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          currentIndex = 2;
+          savedCurrentIndex = 2;
+        });
+
+        widget.onThemeToggle();
+      },
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 300),
+        margin: EdgeInsets.only(bottom: 2),
+        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            colors: isDark
+                ? [Color(0xFF2C2C54), Color(0xFF40407A)]
+                : [Colors.white, Colors.grey.shade100],
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isDark ? Icons.nightlight_round : Icons.wb_sunny_rounded,
+              color: isDark ? Colors.amberAccent : Colors.orange,
+            ),
+            SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                isDark ? "Night Mode" : "Light Mode",
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black87,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            AnimatedContainer(
+              duration: Duration(milliseconds: 300),
+              width: 56,
+              height: 30,
+              padding: EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(30),
+                color: isDark ? Color(0xFF111633) : Colors.grey.shade300,
+              ),
+              child: AnimatedAlign(
+                duration: Duration(milliseconds: 300),
+                curve: Curves.easeOutBack,
+                alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isDark ? Color(0xFFB388FF) : Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
   void openTransactionDetail(Map<String, dynamic> tx) {
+    final TextEditingController noteController =
+        TextEditingController(text: tx['note'] ?? '');
+        String selectedMode = tx['mode'] ?? "Cash";
+
     showDialog(
       context: context,
       builder: (_) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Container(
-            padding: EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  "Transaction Detail",
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
+      return StatefulBuilder(
+        builder: (context, dialogSetState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              child: Container(
+                padding: EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
                 ),
-                SizedBox(height: 16),
-                Text(
-                  "₹ ${(tx['amount'] as double).toStringAsFixed(0)}",
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2C2C54),
-                  ),
-                ),
-                SizedBox(height: 12),
-                _detailRow("Category", tx['category']),
-                _detailRow(
-                  "Date",
-                  "${tx['date'].day}/${tx['date'].month}/${tx['date'].year}",
-                ),
-                _detailRow(
-                  "Time",
-                  "${tx['date'].hour.toString().padLeft(2, '0')}:${tx['date'].minute.toString().padLeft(2, '0')}",
-                ),
-                _detailRow("Mode", tx['mode'] ?? "Cash"),
-                SizedBox(height: 20),
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Color(0xFF2C2C54),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Center(
-                      child: Text(
-                        "Close",
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "Transaction Detail",
                         style: TextStyle(
-                          color: Colors.white,
+                          fontSize: 18,
                           fontWeight: FontWeight.bold,
+                          color: Colors.black87,
                         ),
                       ),
-                    ),
+                      SizedBox(height: 16),
+                      Text(
+                        "₹ ${(tx['amount'] as double).toStringAsFixed(0)}",
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2C2C54),
+                        ),
+                      ),
+                      SizedBox(height: 12),
+
+                      _detailRow("Category", tx['category']),
+                      _detailRow(
+                        "Date",
+                        "${tx['date'].day}/${tx['date'].month}/${tx['date'].year}",
+                      ),
+                      _detailRow(
+                        "Time",
+                        "${tx['date'].hour.toString().padLeft(2, '0')}:${tx['date'].minute.toString().padLeft(2, '0')}",
+                      ),
+                      SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          "Mode",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+
+                      SizedBox(height: 8),
+
+                      Row(
+                        children: [
+                          _modeChip(
+                            title: "Cash",
+                            selected: selectedMode == "Cash",
+                            onTap: () {
+                              dialogSetState(() {
+                                selectedMode = "Cash";
+                              });
+                            },
+                          ),
+                          SizedBox(width: 8),
+                          _modeChip(
+                            title: "UPI",
+                            selected: selectedMode == "UPI",
+                            onTap: () {
+                              dialogSetState(() {
+                                selectedMode = "UPI";
+                              });
+                            },
+                          ),
+                          SizedBox(width: 8),
+                          _modeChip(
+                            title: "Card",
+                            selected: selectedMode == "Card",
+                            onTap: () {
+                              dialogSetState(() {
+                                selectedMode = "Card";
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+
+                      SizedBox(height: 14),
+
+                      TextField(
+                        controller: noteController,
+                        maxLines: 3,
+                        style: TextStyle(color: Colors.black),
+                        decoration: InputDecoration(
+                          hintText: "Add note here...",
+                          labelText: "Note",
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+
+                      SizedBox(height: 20),
+
+                      GestureDetector(
+                        onTap: () async {
+                          tx['note'] = noteController.text.trim();
+                          tx['mode'] = selectedMode;
+
+                          if (tx['id'] != null && userId != null) {
+                            await FirebaseFirestore.instance
+                                .collection('users')
+                                .doc(userId)
+                                .collection('transactions')
+                                .doc(tx['id'])
+                                .update({
+                                  'note': tx['note'],
+                                  'mode': tx['mode'],
+                                });
+                          }
+
+                          await saveData();
+                          setState(() {});
+
+                          Navigator.pop(context);
+
+                          showPremiumSnackBar(
+                            message: "Changes saved successfully",
+                            icon: Icons.note_alt_rounded,
+                          );
+                        },
+                        child: Container(
+                          width: double.infinity,
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Color(0xFF2C2C54),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                            child: Text(
+                              "Save Changes",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      SizedBox(height: 10),
+
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: Text(
+                          "Close",
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                )
-              ],
-            ),
-          ),
+                ),
+              ),
+            );
+          },
         );
-      },
+      }
     );
   }
-
   void openCategoryTransactionsDialog(String category, List<Map<String, dynamic>> reportList) {
     final categoryTransactions =
         reportList.where((tx) => tx['category'] == category).toList();
@@ -3682,6 +3923,19 @@ class _MainScreenState extends State<MainScreen> {
                                             fontSize: 11,
                                           ),
                                         ),
+                                        if ((tx['note'] ?? '').toString().trim().isNotEmpty) ...[
+                                          SizedBox(height: 4),
+                                          Text(
+                                            "📝 ${tx['note']}",
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.grey.shade700,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),
@@ -3995,6 +4249,63 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  Widget _modeChip({
+  required String title,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    IconData icon;
+
+    if (title == "Cash") {
+      icon = Icons.payments_rounded; // 💵
+    } else if (title == "UPI") {
+      icon = Icons.account_balance_wallet_rounded; // 🏦
+    } else {
+      icon = Icons.credit_card_rounded; // 💳
+    }
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: Duration(milliseconds: 250),
+          padding: EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            gradient: selected
+                ? LinearGradient(
+                    colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                  )
+                : null,
+            color: selected ? null : Colors.grey.shade100,
+            border: Border.all(
+              color: selected ? Color(0xFF40407A) : Colors.grey.shade300,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: selected ? Colors.white : Colors.grey.shade700,
+              ),
+              SizedBox(height: 4),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? Colors.white : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _dailyItem(String label, String type, VoidCallback onTap) {
     bool isSelected = selectedDayType == type;
 
@@ -4024,7 +4335,7 @@ class _MainScreenState extends State<MainScreen> {
   void openAddDialog(BuildContext context) {
     TextEditingController amountController = TextEditingController();
     TextEditingController customController = TextEditingController();
-
+    
     String category = categories.isNotEmpty ? categories[0] : "";
     bool isCustom = false;
 
@@ -4168,7 +4479,7 @@ class _MainScreenState extends State<MainScreen> {
                           });
                         }
 
-                        await addTransaction(amount, finalCategory);
+                        await addTransaction(amount, finalCategory, "");
                         await saveData();
 
                         Navigator.pop(context);
