@@ -2231,29 +2231,51 @@ class _MainScreenState extends State<MainScreen> {
                                 selectedDate.month == date.month &&
                                 selectedDate.year == date.year;
 
-                            GestureDetector(
+                            return GestureDetector(
                               onTap: () {
                                 setState(() {
-                                  isCustom = true;
-                                  category = "";
+                                  selectedDate = date;
+                                  selectedDayType = "Custom";
                                 });
+                                saveData();
                               },
                               child: AnimatedContainer(
-                                duration: Duration(milliseconds: 200),
+                                duration: Duration(milliseconds: 250),
+                                margin: EdgeInsets.only(right: 8),
                                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: isCustom ? Colors.orange : Colors.grey.shade300,
-                                  borderRadius: BorderRadius.circular(20),
+                                  color: isSelected
+                                      ? Color(0xFF40407A)
+                                      : (isDark ? Colors.white10 : Colors.grey.shade200),
+                                  borderRadius: BorderRadius.circular(16),
                                 ),
-                                child: Text(
-                                  "Custom",
-                                  style: TextStyle(
-                                    color: isCustom ? Colors.white : Colors.black,
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      _weekdayShort(date),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isSelected
+                                            ? Colors.white
+                                            : (isDark ? Colors.white70 : Colors.black54),
+                                      ),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      "${date.day}",
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: isSelected
+                                            ? Colors.white
+                                            : (isDark ? Colors.white : Colors.black87),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ),
+                            );
                           },
                         );
                       },
@@ -4009,7 +4031,7 @@ class _MainScreenState extends State<MainScreen> {
     showDialog(
       context: context,
       builder: (context) {
-        return StatefulBuilder(builder: (context, setState) {
+        return StatefulBuilder(builder: (context, setDialogState) {
           return Dialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             child: Container(
@@ -4018,108 +4040,26 @@ class _MainScreenState extends State<MainScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    "Add Expense",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  TextField(
-                    controller: amountController,
-                    keyboardType: TextInputType.number,
-                    style: TextStyle(color: Colors.black),
-                    decoration: InputDecoration(
-                      hintText: "Enter Amount",
-                      filled: true,
-                      fillColor: Colors.grey.shade100,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      "Add Expense",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
                       ),
                     ),
-                  ),
-                  SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ...categories.map((cat) {
-                        bool isSelected = category == cat;
+                    SizedBox(height: 16),
 
-                        return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              category = cat;
-                              isCustom = false;
-                            });
-                          },
-                          child: AnimatedContainer(
-                            duration: Duration(milliseconds: 200),
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: isSelected ? Color(0xFF2C2C54) : Colors.grey.shade200,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              cat,
-                              style: TextStyle(
-                                color: isSelected ? Colors.white : Colors.black,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                      GestureDetector(
-                        onTap: () async {
-                          double amount = double.tryParse(amountController.text) ?? 0;
-
-                          String finalCategory =
-                              isCustom ? customController.text.trim() : category;
-
-                          if (amount > 0 && finalCategory.isNotEmpty) {
-                            if (!categories.contains(finalCategory)) {
-                              categories.add(finalCategory);
-                              categoryColors[finalCategory] = Colors.teal;
-                            }
-
-                            await addTransaction(amount, finalCategory);
-                          }
-
-                          Navigator.pop(context);
-                        },
-                        child: AnimatedContainer(
-                          duration: Duration(milliseconds: 200),
-                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: isCustom ? Colors.orange : Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            "Custom",
-                            style: TextStyle(
-                              color: isCustom ? Colors.white : Colors.black,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 10),
-                  if (isCustom)
                     TextField(
-                      controller: customController,
+                      controller: amountController,
+                      keyboardType: TextInputType.number,
                       style: TextStyle(color: Colors.black),
                       decoration: InputDecoration(
-                        hintText: "Custom Category",
+                        hintText: "Enter Amount",
                         filled: true,
                         fillColor: Colors.grey.shade100,
                         border: OutlineInputBorder(
@@ -4128,13 +4068,99 @@ class _MainScreenState extends State<MainScreen> {
                         ),
                       ),
                     ),
-                  SizedBox(height: 20),
-                  GestureDetector(
-                    onTap: () {
-                      double amount = double.tryParse(amountController.text) ?? 0;
-                      String finalCategory = isCustom ? customController.text.trim() : category;
 
-                      if (amount > 0 && finalCategory.isNotEmpty) {
+                    SizedBox(height: 12),
+
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ...categories.map((cat) {
+                          bool isSelected = !isCustom && category == cat;
+
+                          return GestureDetector(
+                            onTap: () {
+                              setDialogState(() {
+                                category = cat;
+                                isCustom = false;
+                              });
+                            },
+                            child: AnimatedContainer(
+                              duration: Duration(milliseconds: 200),
+                              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: isSelected ? Color(0xFF2C2C54) : Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                cat,
+                                style: TextStyle(
+                                  color: isSelected ? Colors.white : Colors.black,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+
+                        GestureDetector(
+                          onTap: () {
+                            setDialogState(() {
+                              isCustom = true;
+                              category = "";
+                            });
+                          },
+                          child: AnimatedContainer(
+                            duration: Duration(milliseconds: 200),
+                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isCustom ? Colors.orange : Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              "Custom",
+                              style: TextStyle(
+                                color: isCustom ? Colors.white : Colors.black,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    if (isCustom) ...[
+                      SizedBox(height: 12),
+                      TextField(
+                        controller: customController,
+                        style: TextStyle(color: Colors.black),
+                        decoration: InputDecoration(
+                          hintText: "Custom Category",
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ],
+
+                    SizedBox(height: 20),
+
+                    GestureDetector(
+                      onTap: () async {
+                        double amount = double.tryParse(amountController.text.trim()) ?? 0;
+                        String finalCategory =
+                            isCustom ? customController.text.trim() : category;
+
+                        if (amount <= 0 || finalCategory.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text("Amount aur category dono fill karo")),
+                          );
+                          return;
+                        }
+
                         if (!categories.contains(finalCategory)) {
                           setState(() {
                             categories.add(finalCategory);
@@ -4142,17 +4168,14 @@ class _MainScreenState extends State<MainScreen> {
                           });
                         }
 
-                      saveData();
-                      Navigator.pop(context);
-                    },
-                    child: TweenAnimationBuilder(
-                      tween: Tween(begin: 0.95, end: 1.0),
-                      duration: Duration(milliseconds: 300),
-                      curve: Curves.easeOutBack,
-                      builder: (context, scale, child) {
-                        return Transform.scale(
-                          scale: scale,
-                          child: child,
+                        await addTransaction(amount, finalCategory);
+                        await saveData();
+
+                        Navigator.pop(context);
+
+                        showPremiumSnackBar(
+                          message: "Transaction added successfully",
+                          icon: Icons.receipt_long_rounded,
                         );
                       },
                       child: Container(
@@ -4174,9 +4197,9 @@ class _MainScreenState extends State<MainScreen> {
                           ),
                         ),
                       ),
-                    ),
-                  )
-                ],
+                    )
+                  ],
+                ),
               ),
             ),
           );

@@ -9,6 +9,9 @@ class NotificationService {
   static Future<void> init() async {
     tz.initializeTimeZones();
 
+    // ✅ India timezone fix
+    tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
+
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -38,6 +41,7 @@ class NotificationService {
     await cancelReminder();
 
     final now = tz.TZDateTime.now(tz.local);
+
     tz.TZDateTime scheduledDate = tz.TZDateTime(
       tz.local,
       now.year,
@@ -50,6 +54,8 @@ class NotificationService {
     if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
+
+    print("Reminder scheduled at: $scheduledDate");
 
     await _notificationsPlugin.zonedSchedule(
       1001,
