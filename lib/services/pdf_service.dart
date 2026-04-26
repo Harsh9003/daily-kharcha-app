@@ -191,8 +191,14 @@ class PdfService {
         "${percent.toStringAsFixed(1)}%",
       ];
     }).toList();
+    final sortedReportList = [...reportList];
 
-    final txRows = reportList.map((tx) {
+    sortedReportList.sort((a, b) {
+      final dateA = a['date'] as DateTime;
+      final dateB = b['date'] as DateTime;
+      return dateB.compareTo(dateA);
+    });
+    final txRows = sortedReportList.map((tx) {
       final date = tx['date'] as DateTime;
       return [
         "${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}",

@@ -467,6 +467,11 @@ class _MainScreenState extends State<MainScreen> {
   DateTime selectedDate = DateTime.now();
   int selectedMonth = DateTime.now().month;
   String selectedDayType = "Today";
+  bool showSearchBar = false;
+  String searchQuery = "";
+  String selectedModeFilter = "All";
+  String selectedCategoryFilter = "All";
+  final TextEditingController searchController = TextEditingController();
 
   String reportView = "Monthly";
   bool showPercentage = false;
@@ -1496,8 +1501,33 @@ class _MainScreenState extends State<MainScreen> {
           .toList();
     }
 
+    if (selectedModeFilter != "All") {
+      list = list.where((t) => (t['mode'] ?? "Cash") == selectedModeFilter).toList();
+    }
+
+    if (selectedCategoryFilter != "All") {
+      list = list.where((t) => t['category'] == selectedCategoryFilter).toList();
+    }
+
+    if (searchQuery.trim().isNotEmpty) {
+      final q = searchQuery.toLowerCase();
+
+      list = list.where((t) {
+        final category = t['category'].toString().toLowerCase();
+        final note = (t['note'] ?? '').toString().toLowerCase();
+        final mode = (t['mode'] ?? '').toString().toLowerCase();
+        final amount = t['amount'].toString();
+
+        return category.contains(q) ||
+            note.contains(q) ||
+            mode.contains(q) ||
+            amount.contains(q);
+      }).toList();
+    }
+
     list.sort((a, b) =>
         (b['date'] as DateTime).compareTo(a['date'] as DateTime));
+
     return list;
   }
 
@@ -1660,81 +1690,156 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget buildHome() {
-    return Column(
-      children: [
-        Container(
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFF1E1E2C),
-                Color(0xFF2C2C54),
-              ],
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    "Daily Kharcha",
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w600,
-                      color: Color.fromARGB(255, 252, 252, 252),
-                    ),
-                  ),
-                  Text(
-                    "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}",
-                  ),
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: () {
+        if (showSearchBar) {
+          setState(() {
+            showSearchBar = false;
+            searchQuery = "";
+            searchController.clear();
+          });
+          FocusScope.of(context).unfocus();
+        }
+      },
+      child: Column(
+        children: [
+          Container(
+            padding: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF1E1E2C),
+                  Color(0xFF2C2C54),
                 ],
               ),
-              SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        viewMode == "Monthly" ? "Monthly Expense" : "Today's Expense",
-                        style: TextStyle(fontSize: 14, color: Colors.white70),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        currentLimit == 0
-                            ? "₹ ${total.toStringAsFixed(0)}"
-                            : "₹ ${total.toStringAsFixed(0)} / ₹ ${currentLimit.toStringAsFixed(0)}",
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        "Daily Kharcha",
                         style: TextStyle(
-                          fontSize: 26,
-                          fontWeight: FontWeight.bold,
-                          color: limitColor,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
                         ),
                       ),
-                      if (currentLimit != 0)
-                        total > currentLimit
-                            ? TweenAnimationBuilder(
-                                tween: Tween(begin: 0.95, end: 1.0),
-                                duration: Duration(milliseconds: 400),
-                                curve: Curves.easeOutBack,
-                                builder: (context, scale, child) {
-                                  return Transform.scale(
-                                    scale: scale,
-                                    child: child,
-                                  );
-                                },
-                                child: Container(
+                    ),
+
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          showSearchBar = !showSearchBar;
+                          if (!showSearchBar) {
+                            searchQuery = "";
+                            searchController.clear();
+                            FocusScope.of(context).unfocus();
+                          }
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: Duration(milliseconds: 250),
+                        width: showSearchBar ? 150 : 44,
+                        height: 42,
+                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.13),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.search_rounded,
+                                color: Colors.white, size: 19),
+                            if (showSearchBar) ...[
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: searchController,
+                                  autofocus: false,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                  ),
+                                  cursorColor: Colors.white,
+                                  decoration: InputDecoration(
+                                    hintText: "Search",
+                                    hintStyle:
+                                        TextStyle(color: Colors.white54),
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                  ),
+                                  onTap: () {},
+                                  onChanged: (value) {
+                                    setState(() {
+                                      searchQuery = value;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(width: 8),
+
+                    _topIconButton(
+                      icon: Icons.tune_rounded,
+                      onTap: openFilterSheet,
+                    ),
+                  ],
+                ),
+
+                SizedBox(height: 8),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          viewMode == "Monthly"
+                              ? "Monthly Expense"
+                              : "Today's Expense",
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white70,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          currentLimit == 0
+                              ? "₹ ${total.toStringAsFixed(0)}"
+                              : "₹ ${total.toStringAsFixed(0)} / ₹ ${currentLimit.toStringAsFixed(0)}",
+                          style: TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.bold,
+                            color: limitColor,
+                          ),
+                        ),
+                        if (currentLimit != 0)
+                          total > currentLimit
+                              ? Container(
                                   margin: EdgeInsets.only(top: 6),
-                                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: Color(0xFFB00020).withOpacity(0.15),
+                                    color: Color(0xFFB00020)
+                                        .withOpacity(0.15),
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                      color: Color(0xFFB00020).withOpacity(0.4),
+                                      color: Color(0xFFB00020)
+                                          .withOpacity(0.4),
                                     ),
                                   ),
                                   child: Row(
@@ -1755,174 +1860,182 @@ class _MainScreenState extends State<MainScreen> {
                                       ),
                                     ],
                                   ),
+                                )
+                              : Text(
+                                  "Remaining: ₹ ${remaining.toStringAsFixed(0)}",
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
-                              )
-                            : Text(
-                                "Remaining: ₹ ${remaining.toStringAsFixed(0)}",
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      ChoiceChip(
-                        label: Text("Monthly"),
-                        selected: viewMode == "Monthly",
-                        onSelected: (_) {
-                          setState(() => viewMode = "Monthly");
-                          saveData();
-                        },
-                      ),
-                      SizedBox(width: 8),
-                      ChoiceChip(
-                        label: Text("Daily"),
-                        selected: viewMode == "Daily",
-                        onSelected: (_) {
-                          setState(() => viewMode = "Daily");
-                          saveData();
-                        },
-                      ),
-                    ],
-                  )
-                ],
-              ),
-              SizedBox(height: 10),
-              if (viewMode == "Daily")
-                SizedBox(
-                  height: 45,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      _dailyItem("Custom", "Custom", () async {
-                        DateTime? picked = await showDatePicker(
-                          context: context,
-                          initialDate: selectedDate,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime.now(),
-                        );
-                        if (picked != null) {
+                      ],
+                    ),
+
+                    Row(
+                      children: [
+                        ChoiceChip(
+                          label: Text("Monthly"),
+                          selected: viewMode == "Monthly",
+                          onSelected: (_) {
+                            setState(() => viewMode = "Monthly");
+                            saveData();
+                          },
+                        ),
+                        SizedBox(width: 8),
+                        ChoiceChip(
+                          label: Text("Daily"),
+                          selected: viewMode == "Daily",
+                          onSelected: (_) {
+                            setState(() => viewMode = "Daily");
+                            saveData();
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+
+                SizedBox(height: 10),
+
+                if (viewMode == "Daily")
+                  SizedBox(
+                    height: 45,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        _dailyItem("Custom", "Custom", () async {
+                          DateTime? picked = await showDatePicker(
+                            context: context,
+                            initialDate: selectedDate,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime.now(),
+                          );
+                          if (picked != null) {
+                            setState(() {
+                              selectedDate = picked;
+                              selectedDayType = "Custom";
+                            });
+                            saveData();
+                          }
+                        }),
+                        _dailyItem("Yesterday", "Yesterday", () {
                           setState(() {
-                            selectedDate = picked;
-                            selectedDayType = "Custom";
+                            selectedDate =
+                                DateTime.now().subtract(Duration(days: 1));
+                            selectedDayType = "Yesterday";
                           });
                           saveData();
-                        }
-                      }),
-                      _dailyItem("Yesterday", "Yesterday", () {
-                        setState(() {
-                          selectedDate = DateTime.now().subtract(Duration(days: 1));
-                          selectedDayType = "Yesterday";
-                        });
-                        saveData();
-                      }),
-                      _dailyItem("Today", "Today", () {
-                        setState(() {
-                          selectedDate = DateTime.now();
-                          selectedDayType = "Today";
-                        });
-                        saveData();
-                      }),
-                    ],
-                  ),
-                )
-              else
-                SizedBox(
-                  height: 40,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: 12,
-                    itemBuilder: (_, i) {
-                      bool sel = selectedMonth == i + 1;
-                      return GestureDetector(
-                        onTap: () {
-                          setState(() => selectedMonth = i + 1);
+                        }),
+                        _dailyItem("Today", "Today", () {
+                          setState(() {
+                            selectedDate = DateTime.now();
+                            selectedDayType = "Today";
+                          });
                           saveData();
-                        },
-                        child: Container(
-                          margin: EdgeInsets.symmetric(horizontal: 5),
-                          padding: EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: sel ? Colors.white : Colors.white24,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            [
-                              "Jan",
-                              "Feb",
-                              "Mar",
-                              "Apr",
-                              "May",
-                              "Jun",
-                              "Jul",
-                              "Aug",
-                              "Sep",
-                              "Oct",
-                              "Nov",
-                              "Dec"
-                            ][i],
-                            style: TextStyle(
-                              color: sel ? Colors.black : Colors.white,
+                        }),
+                      ],
+                    ),
+                  )
+                else
+                  SizedBox(
+                    height: 40,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: 12,
+                      itemBuilder: (_, i) {
+                        bool sel = selectedMonth == i + 1;
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() => selectedMonth = i + 1);
+                            saveData();
+                          },
+                          child: Container(
+                            margin: EdgeInsets.symmetric(horizontal: 5),
+                            padding: EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: sel ? Colors.white : Colors.white24,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              [
+                                "Jan",
+                                "Feb",
+                                "Mar",
+                                "Apr",
+                                "May",
+                                "Jun",
+                                "Jul",
+                                "Aug",
+                                "Sep",
+                                "Oct",
+                                "Nov",
+                                "Dec"
+                              ][i],
+                              style: TextStyle(
+                                color: sel ? Colors.black : Colors.white,
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            padding: EdgeInsets.only(bottom: 130),
-            itemCount: filtered.length,
-            itemBuilder: (_, i) {
-              var tx = filtered[i];
-
-              return Dismissible(
-                key: ValueKey(
-                  '${tx['category']}_${(tx['date'] as DateTime).toIso8601String()}_${tx['amount']}',
-                ),
-                direction: DismissDirection.endToStart,
-                background: Container(
-                  color: Colors.red,
-                  alignment: Alignment.centerRight,
-                  padding: EdgeInsets.only(right: 20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Icon(Icons.delete, color: Colors.white),
-                      SizedBox(width: 5),
-                      Text("Delete", style: TextStyle(color: Colors.white)),
-                    ],
-                  ),
-                ),
-                onDismissed: (_) async {
-                  await deleteTransaction(tx);
-                },
-                child: ListTile(
-                  onTap: () => openTransactionDetail(tx),
-                  title: Text(tx['category']),
-                  subtitle: Text(
-                    "${tx['date'].day}/${tx['date'].month} ${tx['date'].hour}:${tx['date'].minute.toString().padLeft(2, '0')}",
-                  ),
-                  trailing: Text(
-                    "₹ ${tx['amount'].toStringAsFixed(0)}",
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.greenAccent,
+                        );
+                      },
                     ),
                   ),
-                ),
-              );
-            },
+              ],
+            ),
           ),
-        )
-      ],
+
+          Expanded(
+            child: ListView.builder(
+              padding: EdgeInsets.only(bottom: 130),
+              itemCount: filtered.length,
+              itemBuilder: (_, i) {
+                var tx = filtered[i];
+
+                return Dismissible(
+                  key: ValueKey(
+                    '${tx['category']}_${(tx['date'] as DateTime).toIso8601String()}_${tx['amount']}',
+                  ),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    color: Colors.red,
+                    alignment: Alignment.centerRight,
+                    padding: EdgeInsets.only(right: 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Icon(Icons.delete, color: Colors.white),
+                        SizedBox(width: 5),
+                        Text(
+                          "Delete",
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                  onDismissed: (_) async {
+                    await deleteTransaction(tx);
+                  },
+                  child: ListTile(
+                    onTap: () => openTransactionDetail(tx),
+                    title: Text(tx['category']),
+                    subtitle: Text(
+                      "${tx['date'].day}/${tx['date'].month} ${tx['date'].hour}:${tx['date'].minute.toString().padLeft(2, '0')}",
+                    ),
+                    trailing: Text(
+                      "₹ ${tx['amount'].toStringAsFixed(0)}",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.greenAccent,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -4329,6 +4442,126 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _topIconButton({
+  required IconData icon,
+  required VoidCallback onTap,
+}) {
+  return GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(icon, color: Colors.white, size: 20),
+    ),
+  );
+}
+
+  void openFilterSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: widget.isDark ? Color(0xFF1E1E1E) : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (context, sheetSetState) {
+            return Padding(
+              padding: EdgeInsets.all(18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Filter Transactions",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+
+                  SizedBox(height: 18),
+
+                  Text("Payment Mode"),
+                  SizedBox(height: 8),
+
+                  Wrap(
+                    spacing: 8,
+                    children: ["All", "Cash", "UPI", "Card"].map((mode) {
+                      return ChoiceChip(
+                        label: Text(mode),
+                        selected: selectedModeFilter == mode,
+                        onSelected: (_) {
+                          sheetSetState(() {
+                            selectedModeFilter = mode;
+                          });
+                          setState(() {});
+                        },
+                      );
+                    }).toList(),
+                  ),
+
+                  SizedBox(height: 18),
+
+                  Text("Category"),
+                  SizedBox(height: 8),
+
+                  Wrap(
+                    spacing: 8,
+                    children: ["All", ...categories].map((cat) {
+                      return ChoiceChip(
+                        label: Text(cat),
+                        selected: selectedCategoryFilter == cat,
+                        onSelected: (_) {
+                          sheetSetState(() {
+                            selectedCategoryFilter = cat;
+                          });
+                          setState(() {});
+                        },
+                      );
+                    }).toList(),
+                  ),
+
+                  SizedBox(height: 20),
+
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        selectedModeFilter = "All";
+                        selectedCategoryFilter = "All";
+                      });
+                      Navigator.pop(context);
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.symmetric(vertical: 13),
+                      decoration: BoxDecoration(
+                        color: Color(0xFF2C2C54),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Center(
+                        child: Text(
+                          "Clear Filter",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
