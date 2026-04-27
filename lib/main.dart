@@ -14,6 +14,7 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'services/notification_service.dart';
 import 'services/reset_service.dart';
+import 'services/recycle_bin_service.dart';
 
 GoogleSignIn buildGoogleSignIn() {
   return GoogleSignIn(
@@ -512,6 +513,20 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  Future<bool> hasInternetConnection() async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('internet_check')
+          .limit(1)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 3));
+
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   void openResetWarningDialog() {
     showDialog(
       context: context,
@@ -986,37 +1001,85 @@ class _MainScreenState extends State<MainScreen> {
     await batch.commit();
   }
 
+  Future<void> saveUserCategoriesToFirestore() async {
+    if (userId == null) return;
+
+    final encodedCategoryColors = categoryColors.map(
+      (key, value) => MapEntry(key, value.value),
+    );
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .set({
+      'categories': categories,
+      'categoryColors': encodedCategoryColors,
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> loadUserCategoriesFromFirestore() async {
+    if (userId == null) return;
+
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .get();
+
+    final data = doc.data();
+
+    if (data != null && data['categories'] != null) {
+      final List savedCategories = data['categories'];
+
+      categories = savedCategories.map((e) => e.toString()).toList();
+
+      if (data['categoryColors'] != null) {
+        final colorData = Map<String, dynamic>.from(data['categoryColors']);
+
+        categoryColors = colorData.map(
+          (key, value) => MapEntry(key, Color(value as int)),
+        );
+      }
+
+      for (final category in categories) {
+        categoryColors.putIfAbsent(category, () => Colors.teal);
+      }
+    } else {
+      await saveUserCategoriesToFirestore();
+    }
+  }
 
   Future<void> deleteTransaction(Map<String, dynamic> tx) async {
+    final oldTransactions = List<Map<String, dynamic>>.from(transactions);
+
+    setState(() {
+      transactions.removeWhere((item) => item['id'] == tx['id']);
+    });
+
     try {
-      if (userId == null) {
-        debugPrint("❌ No logged in user");
-        return;
-      }
+      if (userId == null) return;
 
-      final docId = tx['id'];
-
-      if (docId == null || docId.toString().isEmpty) {
-        debugPrint("❌ Delete failed: missing doc id");
-        return;
-      }
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .collection('transactions')
-          .doc(docId)
-          .delete();
-
-      setState(() {
-        transactions.remove(tx);
-      });
+      await RecycleBinService.moveTransactionToRecycleBin(
+        uid: userId!,
+        transaction: tx,
+      );
 
       await saveData();
 
-      debugPrint("🗑️ Deleted for user: $userId");
+      showPremiumSnackBar(
+        message: "Moved to Recycle Bin",
+        icon: Icons.recycling_rounded,
+        color: Colors.orangeAccent,
+      );
     } catch (e) {
-      debugPrint("❌ Delete Error: $e");
+      setState(() {
+        transactions = oldTransactions;
+      });
+
+      showPremiumSnackBar(
+        message: "Delete failed. Restored transaction",
+        icon: Icons.error_rounded,
+        color: Colors.redAccent,
+      );
     }
   }
 
@@ -1034,6 +1097,17 @@ class _MainScreenState extends State<MainScreen> {
     });
 
     loadData();
+    cleanupRecycleBin();
+  }
+
+  Future<void> cleanupRecycleBin() async {
+    if (userId == null) return;
+
+    try {
+      await RecycleBinService.cleanupOldRecycleBinItems(uid: userId!);
+    } catch (e) {
+      debugPrint("❌ Recycle bin cleanup error: $e");
+    }
   }
 
   Future<void> signOutUser() async {
@@ -1111,6 +1185,267 @@ class _MainScreenState extends State<MainScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> openRecycleBinDialog() async {
+    if (userId == null) return;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                constraints: const BoxConstraints(maxHeight: 560),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  gradient: const LinearGradient(
+                    colors: [
+                      Color(0xFF2C2C54),
+                      Color(0xFF40407A),
+                    ],
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.recycling_rounded,
+                          color: Colors.greenAccent,
+                          size: 28,
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            "Recycle Bin",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(dialogContext),
+                          icon: const Icon(Icons.close, color: Colors.white70),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 6),
+
+                    const Text(
+                      "Deleted transactions 5 days tak yaha rahengi. Uske baad permanent delete ho jayengi.",
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    Expanded(
+                      child: FutureBuilder<List<Map<String, dynamic>>>(
+                        future: RecycleBinService.getRecycleBinItems(uid: userId!),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(
+                              child: CircularProgressIndicator(
+                                color: Colors.greenAccent,
+                              ),
+                            );
+                          }
+
+                          final items = snapshot.data ?? [];
+
+                          if (items.isEmpty) {
+                            return const Center(
+                              child: Text(
+                                "Recycle Bin empty hai",
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            );
+                          }
+
+                          return ListView.separated(
+                            itemCount: items.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            itemBuilder: (context, index) {
+                              final item = items[index];
+                              final DateTime txDate = item['date'] as DateTime;
+
+                              return Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.10),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.12),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            item['category'].toString(),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        Text(
+                                          "₹ ${(item['amount'] as double).toStringAsFixed(0)}",
+                                          style: const TextStyle(
+                                            color: Colors.greenAccent,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+
+                                    const SizedBox(height: 4),
+
+                                    Text(
+                                      "${txDate.day}/${txDate.month}/${txDate.year}  ${txDate.hour}:${txDate.minute.toString().padLeft(2, '0')}",
+                                      style: const TextStyle(
+                                        color: Colors.white60,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+
+                                    if ((item['note'] ?? '').toString().isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        item['note'].toString(),
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+
+                                    const SizedBox(height: 12),
+
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: GestureDetector(
+                                            onTap: () async {
+                                              final restoredTx =
+                                                  await RecycleBinService.restoreTransaction(
+                                                uid: userId!,
+                                                recycleItem: item,
+                                              );
+
+                                              setState(() {
+                                                transactions.add(restoredTx);
+                                                transactions.sort(
+                                                  (a, b) => (b['date'] as DateTime)
+                                                      .compareTo(a['date'] as DateTime),
+                                                );
+                                              });
+
+                                              await saveData();
+
+                                              setDialogState(() {});
+
+                                              showPremiumSnackBar(
+                                                message: "Transaction restored",
+                                                icon: Icons.restore_rounded,
+                                                color: Colors.greenAccent,
+                                              );
+                                            },
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                vertical: 10,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.greenAccent.withOpacity(0.18),
+                                                borderRadius: BorderRadius.circular(12),
+                                              ),
+                                              alignment: Alignment.center,
+                                              child: const Text(
+                                                "Restore",
+                                                style: TextStyle(
+                                                  color: Colors.greenAccent,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+
+                                        const SizedBox(width: 10),
+
+                                        Expanded(
+                                          child: GestureDetector(
+                                            onTap: () async {
+                                              await RecycleBinService.permanentDelete(
+                                                uid: userId!,
+                                                binId: item['binId'].toString(),
+                                              );
+
+                                              setDialogState(() {});
+
+                                              showPremiumSnackBar(
+                                                message: "Permanently deleted",
+                                                icon: Icons.delete_forever_rounded,
+                                                color: Colors.redAccent,
+                                              );
+                                            },
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                vertical: 10,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.redAccent.withOpacity(0.18),
+                                                borderRadius: BorderRadius.circular(12),
+                                              ),
+                                              alignment: Alignment.center,
+                                              child: const Text(
+                                                "Delete",
+                                                style: TextStyle(
+                                                  color: Colors.redAccent,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1202,6 +1537,9 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> resetAllUserData() async {
     await ResetService.deleteAllUserTransactions();
+    if (userId != null) {
+      await RecycleBinService.deleteAllRecycleBinItems(uid: userId!);
+    }
 
     setState(() {
       transactions.clear();
@@ -1404,6 +1742,11 @@ class _MainScreenState extends State<MainScreen> {
     for (final category in categories) {
       categoryColors.putIfAbsent(category, () => Colors.teal);
     }
+    try {
+      await loadUserCategoriesFromFirestore();
+    } catch (e) {
+      debugPrint('Category Firestore load failed: $e');
+    }
 
     try {
       await _loadTransactionsFromFirestore();
@@ -1414,7 +1757,7 @@ class _MainScreenState extends State<MainScreen> {
     setState(() {});
   }
 
- Future<void> addTransaction(double amount, String category, String note) async {
+ Future<bool> addTransaction(double amount, String category, String note) async {
     DateTime finalDate;
 
     if (viewMode == "Daily") {
@@ -1442,7 +1785,7 @@ class _MainScreenState extends State<MainScreen> {
       'note': note.trim(),
       'id': null,
     };
-
+    final bool isOnline = await hasInternetConnection();
     try {
       await _saveTransactionToFirestore(newTx);
 
@@ -1453,8 +1796,10 @@ class _MainScreenState extends State<MainScreen> {
 
       await saveData();
       debugPrint("🔥 Saved for user: $userId with id: ${newTx['id']}");
+      return isOnline;
     } catch (e) {
       debugPrint("❌ addTransaction Error: $e");
+      return false;
     }
   }
 
@@ -2837,6 +3182,13 @@ class _MainScreenState extends State<MainScreen> {
           ),
           SizedBox(height: 10),
           _profileTile(
+            icon: Icons.recycling_rounded,
+            title: "Recycle Bin",
+            value: "Restore",
+            onTap: () => openRecycleBinDialog(),
+          ),
+          SizedBox(height: 10),
+          _profileTile(
             icon: Icons.category_rounded,
             title: "Total Categories",
             value: "${categories.length}",
@@ -3023,6 +3375,7 @@ class _MainScreenState extends State<MainScreen> {
                             });
 
                             await saveData();
+                            await saveUserCategoriesToFirestore();
                             categoryController.clear();
                             setDialogState(() {});
 
@@ -3322,6 +3675,7 @@ class _MainScreenState extends State<MainScreen> {
                               );
 
                               await saveData();
+                              await saveUserCategoriesToFirestore();
                               
                               Navigator.pop(context);
 
@@ -3549,6 +3903,7 @@ class _MainScreenState extends State<MainScreen> {
                           });
 
                           await saveData();
+                          await saveUserCategoriesToFirestore();
 
                           Navigator.pop(context);
 
@@ -4039,7 +4394,7 @@ class _MainScreenState extends State<MainScreen> {
                                         if ((tx['note'] ?? '').toString().trim().isNotEmpty) ...[
                                           SizedBox(height: 4),
                                           Text(
-                                            "📝 ${tx['note']}",
+                                            " ${tx['note']}",
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
@@ -4710,17 +5065,29 @@ class _MainScreenState extends State<MainScreen> {
                             categories.add(finalCategory);
                             categoryColors[finalCategory] = Colors.teal;
                           });
+                          await saveUserCategoriesToFirestore();
                         }
 
-                        await addTransaction(amount, finalCategory, "");
-                        await saveData();
+                        final bool isOnline = await hasInternetConnection();
 
-                        Navigator.pop(context);
+                        if (!mounted) return;
+
+                        if (Navigator.canPop(context)) {
+                          Navigator.of(context, rootNavigator: true).pop();
+                        }
 
                         showPremiumSnackBar(
-                          message: "Transaction added successfully",
-                          icon: Icons.receipt_long_rounded,
+                          message: isOnline
+                              ? "Transaction saved"
+                              : "Saved offline. It will be visible after internet comes",
+                          icon: isOnline
+                              ? Icons.receipt_long_rounded
+                              : Icons.cloud_off_rounded,
+                          color: isOnline ? Colors.greenAccent : Colors.orangeAccent,
                         );
+
+                        addTransaction(amount, finalCategory, "");
+
                       },
                       child: Container(
                         width: double.infinity,
