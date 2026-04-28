@@ -482,35 +482,39 @@ class _MainScreenState extends State<MainScreen> {
   double dailyLimit = 0;
   double monthlyLimit = 0;
 
+  bool isInternetAvailable = true;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  @override
+  void initState() {
+    super.initState();
 
+    currentUser = FirebaseAuth.instance.currentUser;
+    loadData();
+  }
   Future<void> _saveTransactionToFirestore(Map<String, dynamic> tx) async {
-    try {
-      if (userId == null) {
-        debugPrint("❌ No logged in user");
-        return;
-      }
-
-      final docRef = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .collection('transactions')
-          .add({
-        'amount': tx['amount'],
-        'category': tx['category'],
-        'date': (tx['date'] as DateTime).toIso8601String(),
-        'mode': tx['mode'] ?? 'Cash',
-        'note': tx['note'] ?? '',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      tx['id'] = docRef.id;
-
-      debugPrint("🔥 Saved for user: $userId");
-    } catch (e) {
-      debugPrint("❌ Firestore Error: $e");
+    if (userId == null) {
+      debugPrint("❌ No logged in user");
+      return;
     }
+
+    final String id = tx['id'].toString();
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('transactions')
+        .doc(id)
+        .set({
+      'amount': tx['amount'],
+      'category': tx['category'],
+      'date': (tx['date'] as DateTime).toIso8601String(),
+      'mode': tx['mode'] ?? 'Cash',
+      'note': tx['note'] ?? '',
+      'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    debugPrint("🔥 Transaction synced with id: $id");
   }
 
   Future<bool> hasInternetConnection() async {
@@ -1052,7 +1056,18 @@ class _MainScreenState extends State<MainScreen> {
     final oldTransactions = List<Map<String, dynamic>>.from(transactions);
 
     setState(() {
-      transactions.removeWhere((item) => item['id'] == tx['id']);
+      transactions.removeWhere((item) {
+        final sameId = item['id'] != null && tx['id'] != null && item['id'] == tx['id'];
+
+        final sameLocalTx =
+            item['id'] == null &&
+            tx['id'] == null &&
+            item['amount'] == tx['amount'] &&
+            item['category'] == tx['category'] &&
+            (item['date'] as DateTime).isAtSameMomentAs(tx['date'] as DateTime);
+
+        return sameId || sameLocalTx || identical(item, tx);
+      });
     });
 
     try {
@@ -1076,37 +1091,12 @@ class _MainScreenState extends State<MainScreen> {
       });
 
       showPremiumSnackBar(
-        message: "Delete failed. Restored transaction",
+        message: "Delete failed. Transaction restored",
         icon: Icons.error_rounded,
         color: Colors.redAccent,
       );
-    }
-  }
 
-  @override
-  void initState() {
-    super.initState();
-
-    currentUser = FirebaseAuth.instance.currentUser;
-
-    // 🔥 user refresh karega (photo issue fix)
-    currentUser?.reload().then((_) {
-      setState(() {
-        currentUser = FirebaseAuth.instance.currentUser;
-      });
-    });
-
-    loadData();
-    cleanupRecycleBin();
-  }
-
-  Future<void> cleanupRecycleBin() async {
-    if (userId == null) return;
-
-    try {
-      await RecycleBinService.cleanupOldRecycleBinItems(uid: userId!);
-    } catch (e) {
-      debugPrint("❌ Recycle bin cleanup error: $e");
+      debugPrint("❌ Recycle Bin Delete Error: $e");
     }
   }
 
@@ -1505,7 +1495,7 @@ class _MainScreenState extends State<MainScreen> {
                     dailyLimit: dailyLimit,
                     monthlyLimit: monthlyLimit,
                     userName: "Daily Kharcha User",
-                    developerName: "Harshender Singh",
+                    // developerName: "Harshender Singh",
                   );
                 },
               ),
@@ -1575,21 +1565,33 @@ class _MainScreenState extends State<MainScreen> {
           .collection('users')
           .doc(userId)
           .collection('transactions')
-          .orderBy('createdAt', descending: true)
           .get();
 
       transactions = snapshot.docs.map((doc) {
         final data = doc.data();
+        final rawDate = data['date'];
+
+        DateTime txDate;
+
+        if (rawDate is Timestamp) {
+          txDate = rawDate.toDate();
+        } else {
+          txDate = DateTime.parse(rawDate.toString());
+        }
 
         return {
           'id': doc.id,
           'amount': (data['amount'] as num).toDouble(),
-          'category': data['category'],
-          'date': DateTime.parse(data['date']),
+          'category': data['category'] ?? 'Other',
+          'date': txDate,
           'mode': data['mode'] ?? 'Cash',
           'note': data['note'] ?? '',
         };
       }).toList();
+
+      transactions.sort(
+        (a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime),
+      );
 
       debugPrint("✅ Loaded ${transactions.length} tx for user: $userId");
     } catch (e) {
@@ -1757,25 +1759,31 @@ class _MainScreenState extends State<MainScreen> {
     setState(() {});
   }
 
- Future<bool> addTransaction(double amount, String category, String note) async {
-    DateTime finalDate;
+  Future<void> addTransaction(double amount, String category, String note) async {
+    final now = DateTime.now();
 
-    if (viewMode == "Daily") {
-      finalDate = selectedDate;
-    } else {
-      DateTime now = DateTime.now();
-      int safeDay = now.day;
-      int lastDay = DateTime(now.year, selectedMonth + 1, 0).day;
-      if (safeDay > lastDay) safeDay = lastDay;
+    final DateTime finalDate = viewMode == "Daily"
+        ? DateTime(
+            selectedDate.year,
+            selectedDate.month,
+            selectedDate.day,
+            now.hour,
+            now.minute,
+          )
+        : DateTime(
+            now.year,
+            selectedMonth,
+            now.day,
+            now.hour,
+            now.minute,
+          );
 
-      finalDate = DateTime(
-        now.year,
-        selectedMonth,
-        safeDay,
-        now.hour,
-        now.minute,
-      );
-    }
+    final String txId = FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('transactions')
+        .doc()
+        .id;
 
     final newTx = {
       'amount': amount,
@@ -1783,24 +1791,19 @@ class _MainScreenState extends State<MainScreen> {
       'date': finalDate,
       'mode': "Cash",
       'note': note.trim(),
-      'id': null,
+      'id': txId,
     };
-    final bool isOnline = await hasInternetConnection();
-    try {
-      await _saveTransactionToFirestore(newTx);
 
-      setState(() {
-        transactions.add(newTx);
-        categoryColors.putIfAbsent(category, () => Colors.teal);
-      });
+    setState(() {
+      transactions.add(newTx);
+      categoryColors.putIfAbsent(category, () => Colors.teal);
+    });
 
-      await saveData();
-      debugPrint("🔥 Saved for user: $userId with id: ${newTx['id']}");
-      return isOnline;
-    } catch (e) {
-      debugPrint("❌ addTransaction Error: $e");
-      return false;
-    }
+    await saveData();
+
+    _saveTransactionToFirestore(newTx).catchError((e) {
+      debugPrint("❌ Firestore sync failed: $e");
+    });
   }
 
   double get total {
@@ -2338,7 +2341,7 @@ class _MainScreenState extends State<MainScreen> {
 
                 return Dismissible(
                   key: ValueKey(
-                    '${tx['category']}_${(tx['date'] as DateTime).toIso8601String()}_${tx['amount']}',
+                    tx['id'] ?? '${tx['category']}_${(tx['date'] as DateTime).millisecondsSinceEpoch}_${tx['amount']}',
                   ),
                   direction: DismissDirection.endToStart,
                   background: Container(
@@ -2357,8 +2360,8 @@ class _MainScreenState extends State<MainScreen> {
                       ],
                     ),
                   ),
-                  onDismissed: (_) async {
-                    await deleteTransaction(tx);
+                  onDismissed: (_) {
+                    deleteTransaction(tx);
                   },
                   child: ListTile(
                     onTap: () => openTransactionDetail(tx),
@@ -3220,12 +3223,12 @@ class _MainScreenState extends State<MainScreen> {
             title: "App Name",
             value: "Daily Kharcha",
           ),
-          SizedBox(height: 10),
-          _profileTile(
-            icon: Icons.code_rounded,
-            title: "Developer",
-            value: "Harshender Singh",
-          ),
+          // SizedBox(height: 10),
+          // _profileTile(
+          //   icon: Icons.code_rounded,
+          //   title: "Developer",
+          //   value: "Harshender Singh",
+          // ),
           SizedBox(height: 10),
           _profileTile(
             icon: Icons.info_outline_rounded,
@@ -5068,22 +5071,18 @@ class _MainScreenState extends State<MainScreen> {
                           await saveUserCategoriesToFirestore();
                         }
 
-                        final bool isOnline = await hasInternetConnection();
-
-                        if (!mounted) return;
-
                         if (Navigator.canPop(context)) {
                           Navigator.of(context, rootNavigator: true).pop();
                         }
 
                         showPremiumSnackBar(
-                          message: isOnline
-                              ? "Transaction saved"
-                              : "Saved offline. It will be visible after internet comes",
-                          icon: isOnline
+                          message: isInternetAvailable
+                              ? "Transaction saved successfully"
+                              : "Saved offline. Internet aate hi sync ho jayegi",
+                          icon: isInternetAvailable
                               ? Icons.receipt_long_rounded
                               : Icons.cloud_off_rounded,
-                          color: isOnline ? Colors.greenAccent : Colors.orangeAccent,
+                          color: isInternetAvailable ? Colors.greenAccent : Colors.orangeAccent,
                         );
 
                         addTransaction(amount, finalCategory, "");
