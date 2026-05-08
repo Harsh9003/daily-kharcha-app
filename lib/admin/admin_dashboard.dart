@@ -50,42 +50,53 @@ class AdminDashboard extends StatelessWidget {
 
                     const SizedBox(height: 18),
 
-                    GridView.count(
-                      crossAxisCount: isWide ? 4 : 2,
+                    GridView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      childAspectRatio: isWide ? 3.6 : 2.0,
-                      children: [
-                        _statCard(
-                          "Total Users",
-                          "$totalUsers",
-                          Icons.people_alt_rounded,
-                          const Color(0xFF40407A),
-                        ),
-
-                        _statCard(
-                          "Active Users",
-                          "$activeUsers",
-                          Icons.verified_user_rounded,
-                          Colors.green,
-                        ),
-
-                        _statCard(
-                          "Blocked Users",
-                          "$blockedUsers",
-                          Icons.block_rounded,
-                          Colors.red,
-                        ),
-
-                        _statCard(
-                          "Admins",
-                          "$admins",
-                          Icons.admin_panel_settings_rounded,
-                          Colors.orange,
-                        ),
-                      ],
+                      itemCount: 4,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: constraints.maxWidth > 1100
+                            ? 4
+                            : constraints.maxWidth > 650
+                                ? 2
+                                : 1,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: constraints.maxWidth > 1100
+                            ? 3.1
+                            : constraints.maxWidth > 650
+                                ? 3.2
+                                : 3.4,
+                      ),
+                      itemBuilder: (context, index) {
+                        final items = [
+                          _statCard(
+                            "Total Users",
+                            "$totalUsers",
+                            Icons.people_alt_rounded,
+                            const Color(0xFF40407A),
+                          ),
+                          _statCard(
+                            "Active Users",
+                            "$activeUsers",
+                            Icons.verified_user_rounded,
+                            Colors.green,
+                          ),
+                          _statCard(
+                            "Blocked Users",
+                            "$blockedUsers",
+                            Icons.block_rounded,
+                            Colors.red,
+                          ),
+                          _statCard(
+                            "Admins",
+                            "$admins",
+                            Icons.admin_panel_settings_rounded,
+                            Colors.orange,
+                          ),
+                        ];
+                        return items[index];
+                      },
                     ),
 
                     const SizedBox(height: 22),
@@ -101,73 +112,82 @@ class AdminDashboard extends StatelessWidget {
 
                     const SizedBox(height: 12),
 
-                    GridView.count(
-                      crossAxisCount: isWide ? 3 : 2,
+                    GridView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      crossAxisSpacing: 14,
-                      mainAxisSpacing: 14,
-                      childAspectRatio: isWide ? 4.2 : 1.7,
-                      children: [
-                        _toolCard(
-                          context,
-                          "Users",
-                          "View, block and manage users",
-                          Icons.people_alt_rounded,
-                          const Color(0xFF40407A),
-                          () => Navigator.push(
+                      itemCount: 6,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: constraints.maxWidth > 1100
+                            ? 3
+                            : constraints.maxWidth > 700
+                                ? 2
+                                : 1,
+                        crossAxisSpacing: 14,
+                        mainAxisSpacing: 14,
+                        childAspectRatio: constraints.maxWidth > 1100
+                            ? 4.0
+                            : constraints.maxWidth > 700
+                                ? 3.4
+                                : 3.2,
+                      ),
+                      itemBuilder: (context, index) {
+                        final items = [
+                          _toolCard(
                             context,
-                            MaterialPageRoute(
-                              builder: (_) => const AdminUsersPage(),
+                            "Users",
+                            "View, block and manage users",
+                            Icons.people_alt_rounded,
+                            const Color(0xFF40407A),
+                            () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const AdminUsersPage(),
+                              ),
                             ),
                           ),
-                        ),
-
-                        _toolCard(
-                          context,
-                          "Notifications",
-                          "Send alert to users",
-                          Icons.notifications_active_rounded,
-                          const Color(0xFF009688),
-                          () => _comingSoon(context),
-                        ),
-
-                        _toolCard(
-                          context,
-                          "Transactions",
-                          "Review user expenses",
-                          Icons.receipt_long_rounded,
-                          const Color(0xFFFF9800),
-                          () => _comingSoon(context),
-                        ),
-
-                        _toolCard(
-                          context,
-                          "Categories",
-                          "Manage user categories",
-                          Icons.category_rounded,
-                          const Color(0xFFE91E63),
-                          () => _comingSoon(context),
-                        ),
-
-                        _toolCard(
-                          context,
-                          "Blocked Users",
-                          "Check restricted accounts",
-                          Icons.block_rounded,
-                          const Color(0xFFB00020),
-                          () => _comingSoon(context),
-                        ),
-
-                        _toolCard(
-                          context,
-                          "Analytics",
-                          "App usage overview",
-                          Icons.analytics_rounded,
-                          const Color(0xFF3F51B5),
-                          () => _comingSoon(context),
-                        ),
-                      ],
+                          _toolCard(
+                            context,
+                            "Notifications",
+                            "Send alert to users",
+                            Icons.notifications_active_rounded,
+                            const Color(0xFF009688),
+                            () => _comingSoon(context),
+                          ),
+                          _toolCard(
+                            context,
+                            "Transactions",
+                            "Review user expenses",
+                            Icons.receipt_long_rounded,
+                            const Color(0xFFFF9800),
+                            () => _comingSoon(context),
+                          ),
+                          _toolCard(
+                            context,
+                            "Categories",
+                            "Manage user categories",
+                            Icons.category_rounded,
+                            const Color(0xFFE91E63),
+                            () => _comingSoon(context),
+                          ),
+                          _toolCard(
+                            context,
+                            "Blocked Users",
+                            "Check restricted accounts",
+                            Icons.block_rounded,
+                            const Color(0xFFB00020),
+                            () => _comingSoon(context),
+                          ),
+                          _toolCard(
+                            context,
+                            "Analytics",
+                            "App usage overview",
+                            Icons.analytics_rounded,
+                            const Color(0xFF3F51B5),
+                            () => _comingSoon(context),
+                          ),
+                        ];
+                        return items[index];
+                      },
                     ),
                   ],
                 ),

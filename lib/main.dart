@@ -2453,9 +2453,24 @@ class _MainScreenState extends State<MainScreen> {
           ),
 
           Expanded(
-            child: ListView.builder(
-              padding: EdgeInsets.only(bottom: 130),
-              itemCount: filtered.length,
+            child: RefreshIndicator(
+              color: Colors.greenAccent,
+              backgroundColor: const Color(0xFF1E1E2C),
+              onRefresh: () async {
+                await loadData();
+
+                if (mounted) {
+                  showPremiumSnackBar(
+                    message: "Transactions refreshed",
+                    icon: Icons.refresh_rounded,
+                    color: Colors.greenAccent,
+                  );
+                }
+              },
+              child: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.only(bottom: 130),
+                itemCount: filtered.length,
               itemBuilder: (_, i) {
                 var tx = filtered[i];
 
@@ -2501,6 +2516,7 @@ class _MainScreenState extends State<MainScreen> {
                 );
               },
             ),
+          ),
           ),
         ],
       ),
