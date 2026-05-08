@@ -1445,6 +1445,7 @@ class _MainScreenState extends State<MainScreen> {
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -2805,9 +2806,10 @@ class _MainScreenState extends State<MainScreen> {
                             );
                           }).toList(),
                         )
-                      : Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
+                      : SingleChildScrollView(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
                             SizedBox(
                               height: 220,
                               child: Stack(
@@ -2847,7 +2849,7 @@ class _MainScreenState extends State<MainScreen> {
 
                                         return PieChartSectionData(
                                           value: entry.value,
-                                          title: totalAmount == 0
+                                          title: (totalAmount == 0 || percentage < 5)
                                               ? ""
                                               : "${percentage.toStringAsFixed(1)}%",
                                           radius: touchedPieIndex == categoryTotal.keys.toList().indexOf(entry.key) ? 82 : 70,
@@ -2913,8 +2915,10 @@ class _MainScreenState extends State<MainScreen> {
                                 );
                               }).toList(),
                             ),
+                            SizedBox(height: 16),
                           ],
                         ),
+                      ),
                 ),
                 SizedBox(height: 12),
                 Center(
@@ -4823,6 +4827,7 @@ class _MainScreenState extends State<MainScreen> {
   void openFilterSheet() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: widget.isDark ? Color(0xFF1E1E1E) : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -4830,10 +4835,15 @@ class _MainScreenState extends State<MainScreen> {
       builder: (_) {
         return StatefulBuilder(
           builder: (context, sheetSetState) {
-            return Padding(
-              padding: EdgeInsets.all(18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+            return SafeArea(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.85,
+                ),
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(18, 18, 18, 18 + MediaQuery.of(context).viewInsets.bottom),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -4914,9 +4924,11 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                     ),
                   ),
-                ],
+                  ],
+                ),
               ),
-            );
+            ),
+          );
           },
         );
       },
