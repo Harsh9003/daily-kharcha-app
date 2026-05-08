@@ -15,6 +15,7 @@ import 'package:timezone/timezone.dart' as tz;
 import 'services/notification_service.dart';
 import 'services/reset_service.dart';
 import 'services/recycle_bin_service.dart';
+import 'admin/admin_gate.dart';
 
 GoogleSignIn buildGoogleSignIn() {
   return GoogleSignIn(
@@ -58,6 +59,9 @@ class _DailyKharchaAppState extends State<DailyKharchaApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: isDark ? ThemeData.dark() : ThemeData.light(),
+      routes: {
+        '/admin': (context) => const AdminGate(),
+      },
       home: AuthGate(
         isDark: isDark,
         onThemeToggle: toggleTheme,
@@ -87,10 +91,70 @@ class AuthGate extends StatelessWidget {
         }
 
         if (snapshot.hasData) {
-          
-          return MainScreen(
-            isDark: isDark,
-            onThemeToggle: onThemeToggle,
+          final user = snapshot.data!;
+          return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            future: FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .get(),
+            builder: (context, userDocSnapshot) {
+              if (userDocSnapshot.connectionState == ConnectionState.waiting) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              final data = userDocSnapshot.data?.data();
+              final isBlocked = data?['isBlocked'] == true;
+
+              if (isBlocked) {
+                return Scaffold(
+                  backgroundColor: const Color(0xFF121212),
+                  body: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.block_rounded,
+                            color: Colors.redAccent,
+                            size: 58,
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            "Account Blocked",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            "Your account has been blocked by admin.",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                          const SizedBox(height: 20),
+                          ElevatedButton(
+                            onPressed: () async {
+                              await FirebaseAuth.instance.signOut();
+                            },
+                            child: const Text("Logout"),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              return MainScreen(
+                isDark: isDark,
+                onThemeToggle: onThemeToggle,
+              );
+            },
           );
         }
 
@@ -111,6 +175,23 @@ class _LoginScreenState extends State<LoginScreen>
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
   late Animation<double> _slideAnimation;
+
+  Future<void> saveUserProfileToFirestore(User user) async {
+    final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final doc = await ref.get();
+    final data = doc.data();
+
+    await ref.set({
+      'uid': user.uid,
+      'name': user.displayName ?? '',
+      'email': user.email ?? '',
+      'photoUrl': user.photoURL ?? '',
+      'role': data?['role'] ?? 'user',
+      'isBlocked': data?['isBlocked'] ?? false,
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (!doc.exists) 'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
 
   Future<void> signInWithGoogle() async {
     try {
@@ -133,7 +214,13 @@ class _LoginScreenState extends State<LoginScreen>
         idToken: googleAuth.idToken,
       );
 
-      await FirebaseAuth.instance.signInWithCredential(credential);
+      final userCredential =
+          await FirebaseAuth.instance.signInWithCredential(credential);
+
+      final user = userCredential.user;
+      if (user != null) {
+        await saveUserProfileToFirestore(user);
+      }
 
       debugPrint("✅ Login Success");
     } catch (e) {
@@ -774,7 +861,7 @@ class _MainScreenState extends State<MainScreen> {
           builder: (context, setDialogState) {
             return Dialog(
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(16),
               ),
               child: Container(
                 padding: const EdgeInsets.all(20),
@@ -2149,97 +2236,129 @@ class _MainScreenState extends State<MainScreen> {
                 SizedBox(height: 8),
 
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          viewMode == "Monthly"
-                              ? "Monthly Expense"
-                              : "Today's Expense",
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white70,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          currentLimit == 0
-                              ? "₹ ${total.toStringAsFixed(0)}"
-                              : "₹ ${total.toStringAsFixed(0)} / ₹ ${currentLimit.toStringAsFixed(0)}",
-                          style: TextStyle(
-                            fontSize: 26,
-                            fontWeight: FontWeight.bold,
-                            color: limitColor,
-                          ),
-                        ),
-                        if (currentLimit != 0)
-                          total > currentLimit
-                              ? Container(
-                                  margin: EdgeInsets.only(top: 6),
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Color(0xFFB00020)
-                                        .withOpacity(0.15),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: Color(0xFFB00020)
-                                          .withOpacity(0.4),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.warning_amber_rounded,
-                                        color: Color(0xFFB00020),
-                                        size: 18,
-                                      ),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        "Limit Crossed",
-                                        style: TextStyle(
-                                          color: Color(0xFFB00020),
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              : Text(
-                                  "Remaining: ₹ ${remaining.toStringAsFixed(0)}",
-                                  style: TextStyle(
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  viewMode == "Monthly"
+                                      ? "Monthly Expense"
+                                      : "Today's Expense",
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 14,
                                     color: Colors.white70,
-                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                      ],
-                    ),
+                              ),
+                              const SizedBox(width: 10),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerRight,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _homeModeChip("Monthly", viewMode == "Monthly", () {
+                                      setState(() => viewMode = "Monthly");
+                                      saveData();
+                                    }),
+                                    const SizedBox(width: 8),
+                                    _homeModeChip("Daily", viewMode == "Daily", () {
+                                      setState(() => viewMode = "Daily");
+                                      saveData();
+                                    }),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
 
-                    Row(
-                      children: [
-                        ChoiceChip(
-                          label: Text("Monthly"),
-                          selected: viewMode == "Monthly",
-                          onSelected: (_) {
-                            setState(() => viewMode = "Monthly");
-                            saveData();
-                          },
-                        ),
-                        SizedBox(width: 8),
-                        ChoiceChip(
-                          label: Text("Daily"),
-                          selected: viewMode == "Daily",
-                          onSelected: (_) {
-                            setState(() => viewMode = "Daily");
-                            saveData();
-                          },
-                        ),
-                      ],
+                          const SizedBox(height: 8),
+
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: SizedBox(
+                                  height: 34,
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      currentLimit == 0
+                                          ? "₹ ${total.toStringAsFixed(0)}"
+                                          : "₹ ${total.toStringAsFixed(0)} / ₹ ${currentLimit.toStringAsFixed(0)}",
+                                      maxLines: 1,
+                                      style: TextStyle(
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.bold,
+                                        color: limitColor,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (currentLimit != 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 18),
+                                  child: total > currentLimit
+                                      ? Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFB00020).withOpacity(0.15),
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(
+                                              color: const Color(0xFFB00020).withOpacity(0.4),
+                                            ),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.warning_amber_rounded,
+                                                color: Color(0xFFB00020),
+                                                size: 14,
+                                              ),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                "Limit Crossed",
+                                                style: TextStyle(
+                                                  color: Color(0xFFB00020),
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        )
+                                      : FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          child: Text(
+                                            "Remaining: ₹ ${remaining.toStringAsFixed(0)}",
+                                            maxLines: 1,
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -2248,7 +2367,7 @@ class _MainScreenState extends State<MainScreen> {
 
                 if (viewMode == "Daily")
                   SizedBox(
-                    height: 45,
+                    height: 36,
                     child: ListView(
                       scrollDirection: Axis.horizontal,
                       children: [
@@ -4781,6 +4900,45 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+
+  Widget _homeModeChip(String text, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? Colors.white.withOpacity(0.22)
+              : Colors.black.withOpacity(0.35),
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(
+            color: selected
+                ? Colors.white.withOpacity(0.22)
+                : Colors.white.withOpacity(0.18),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (selected) ...[
+              const Icon(Icons.check_rounded, color: Colors.white, size: 14),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              text,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _dailyItem(String label, String type, VoidCallback onTap) {
     bool isSelected = selectedDayType == type;
 
@@ -4789,17 +4947,18 @@ class _MainScreenState extends State<MainScreen> {
       child: AnimatedContainer(
         duration: Duration(milliseconds: 300),
         margin: EdgeInsets.symmetric(horizontal: 6),
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
           color: isSelected ? Colors.white : Colors.white24,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
         ),
         child: Center(
           child: Text(
             label,
             style: TextStyle(
               color: isSelected ? Colors.black : Colors.white,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
             ),
           ),
         ),
