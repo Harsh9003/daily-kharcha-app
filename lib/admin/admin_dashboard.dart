@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'admin_users_page.dart';
+import 'admin_notifications_page.dart';
 
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});
@@ -151,7 +152,12 @@ class AdminDashboard extends StatelessWidget {
                             "Send alert to users",
                             Icons.notifications_active_rounded,
                             const Color(0xFF009688),
-                            () => _comingSoon(context),
+                            () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const AdminNotificationsPage(),
+                              ),
+                            ),
                           ),
                           _toolCard(
                             context,

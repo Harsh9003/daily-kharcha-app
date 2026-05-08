@@ -58,10 +58,10 @@ class _DailyKharchaAppState extends State<DailyKharchaApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: isDark ? ThemeData.dark() : ThemeData.light(),
       routes: {
         '/admin': (context) => const AdminGate(),
       },
+      theme: isDark ? ThemeData.dark() : ThemeData.light(),
       home: AuthGate(
         isDark: isDark,
         onThemeToggle: toggleTheme,
@@ -91,70 +91,10 @@ class AuthGate extends StatelessWidget {
         }
 
         if (snapshot.hasData) {
-          final user = snapshot.data!;
-          return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            future: FirebaseFirestore.instance
-                .collection('users')
-                .doc(user.uid)
-                .get(),
-            builder: (context, userDocSnapshot) {
-              if (userDocSnapshot.connectionState == ConnectionState.waiting) {
-                return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
-                );
-              }
-
-              final data = userDocSnapshot.data?.data();
-              final isBlocked = data?['isBlocked'] == true;
-
-              if (isBlocked) {
-                return Scaffold(
-                  backgroundColor: const Color(0xFF121212),
-                  body: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.block_rounded,
-                            color: Colors.redAccent,
-                            size: 58,
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            "Account Blocked",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            "Your account has been blocked by admin.",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                          const SizedBox(height: 20),
-                          ElevatedButton(
-                            onPressed: () async {
-                              await FirebaseAuth.instance.signOut();
-                            },
-                            child: const Text("Logout"),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }
-
-              return MainScreen(
-                isDark: isDark,
-                onThemeToggle: onThemeToggle,
-              );
-            },
+          
+          return MainScreen(
+            isDark: isDark,
+            onThemeToggle: onThemeToggle,
           );
         }
 
@@ -175,23 +115,6 @@ class _LoginScreenState extends State<LoginScreen>
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
   late Animation<double> _slideAnimation;
-
-  Future<void> saveUserProfileToFirestore(User user) async {
-    final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
-    final doc = await ref.get();
-    final data = doc.data();
-
-    await ref.set({
-      'uid': user.uid,
-      'name': user.displayName ?? '',
-      'email': user.email ?? '',
-      'photoUrl': user.photoURL ?? '',
-      'role': data?['role'] ?? 'user',
-      'isBlocked': data?['isBlocked'] ?? false,
-      'updatedAt': FieldValue.serverTimestamp(),
-      if (!doc.exists) 'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-  }
 
   Future<void> signInWithGoogle() async {
     try {
@@ -215,9 +138,12 @@ class _LoginScreenState extends State<LoginScreen>
       );
 
       final userCredential =
-          await FirebaseAuth.instance.signInWithCredential(credential);
+          await FirebaseAuth.instance.signInWithCredential(
+        credential,
+      );
 
       final user = userCredential.user;
+
       if (user != null) {
         await saveUserProfileToFirestore(user);
       }
@@ -259,6 +185,21 @@ class _LoginScreenState extends State<LoginScreen>
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> saveUserProfileToFirestore(User user) async {
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .set({
+      'uid': user.uid,
+      'name': user.displayName ?? '',
+      'email': user.email ?? '',
+      'photoUrl': user.photoURL ?? '',
+      'role': 'user',
+      'isBlocked': false,
+      'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Widget _featureTile(IconData icon, String text) {
@@ -861,7 +802,7 @@ class _MainScreenState extends State<MainScreen> {
           builder: (context, setDialogState) {
             return Dialog(
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(20),
               ),
               child: Container(
                 padding: const EdgeInsets.all(20),
@@ -1186,7 +1127,7 @@ class _MainScreenState extends State<MainScreen> {
       debugPrint("❌ Recycle Bin Delete Error: $e");
     }
   }
-
+  
   Future<void> signOutUser() async {
     try {
       final GoogleSignIn googleSignIn = buildGoogleSignIn();
@@ -1532,7 +1473,6 @@ class _MainScreenState extends State<MainScreen> {
 
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -2227,6 +2167,13 @@ class _MainScreenState extends State<MainScreen> {
                     SizedBox(width: 8),
 
                     _topIconButton(
+                      icon: Icons.notifications_active_rounded,
+                      onTap: openNotificationsSheet,
+                    ),
+
+                    SizedBox(width: 8),
+
+                    _topIconButton(
                       icon: Icons.tune_rounded,
                       onTap: openFilterSheet,
                     ),
@@ -2253,7 +2200,7 @@ class _MainScreenState extends State<MainScreen> {
                                       : "Today's Expense",
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 14,
                                     color: Colors.white70,
                                   ),
@@ -2282,10 +2229,10 @@ class _MainScreenState extends State<MainScreen> {
                           ),
 
                           const SizedBox(height: 8),
-
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
+
                               Expanded(
                                 child: SizedBox(
                                   height: 34,
@@ -2306,6 +2253,7 @@ class _MainScreenState extends State<MainScreen> {
                                   ),
                                 ),
                               ),
+
                               if (currentLimit != 0)
                                 Padding(
                                   padding: const EdgeInsets.only(left: 18),
@@ -2322,9 +2270,9 @@ class _MainScreenState extends State<MainScreen> {
                                               color: const Color(0xFFB00020).withOpacity(0.4),
                                             ),
                                           ),
-                                          child: const Row(
+                                          child: Row(
                                             mainAxisSize: MainAxisSize.min,
-                                            children: [
+                                            children: const [
                                               Icon(
                                                 Icons.warning_amber_rounded,
                                                 color: Color(0xFFB00020),
@@ -2360,6 +2308,7 @@ class _MainScreenState extends State<MainScreen> {
                         ],
                       ),
                     ),
+
                   ],
                 ),
 
@@ -2453,24 +2402,9 @@ class _MainScreenState extends State<MainScreen> {
           ),
 
           Expanded(
-            child: RefreshIndicator(
-              color: Colors.greenAccent,
-              backgroundColor: const Color(0xFF1E1E2C),
-              onRefresh: () async {
-                await loadData();
-
-                if (mounted) {
-                  showPremiumSnackBar(
-                    message: "Transactions refreshed",
-                    icon: Icons.refresh_rounded,
-                    color: Colors.greenAccent,
-                  );
-                }
-              },
-              child: ListView.builder(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: EdgeInsets.only(bottom: 130),
-                itemCount: filtered.length,
+            child: ListView.builder(
+              padding: EdgeInsets.only(bottom: 130),
+              itemCount: filtered.length,
               itemBuilder: (_, i) {
                 var tx = filtered[i];
 
@@ -2516,7 +2450,6 @@ class _MainScreenState extends State<MainScreen> {
                 );
               },
             ),
-          ),
           ),
         ],
       ),
@@ -2941,10 +2874,9 @@ class _MainScreenState extends State<MainScreen> {
                             );
                           }).toList(),
                         )
-                      : SingleChildScrollView(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
                             SizedBox(
                               height: 220,
                               child: Stack(
@@ -2984,7 +2916,7 @@ class _MainScreenState extends State<MainScreen> {
 
                                         return PieChartSectionData(
                                           value: entry.value,
-                                          title: (totalAmount == 0 || percentage < 5)
+                                          title: totalAmount == 0
                                               ? ""
                                               : "${percentage.toStringAsFixed(1)}%",
                                           radius: touchedPieIndex == categoryTotal.keys.toList().indexOf(entry.key) ? 82 : 70,
@@ -3050,10 +2982,8 @@ class _MainScreenState extends State<MainScreen> {
                                 );
                               }).toList(),
                             ),
-                            SizedBox(height: 16),
                           ],
                         ),
-                      ),
                 ),
                 SizedBox(height: 12),
                 Center(
@@ -3372,7 +3302,7 @@ class _MainScreenState extends State<MainScreen> {
           _profileTile(
             icon: Icons.info_outline_rounded,
             title: "Version",
-            value: "1.1.0",
+            value: "1.2.0",
           ),
         ],
       ),
@@ -4843,6 +4773,40 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  Widget _homeModeChip(String text, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? Colors.white.withOpacity(0.22) : Colors.black.withOpacity(0.40),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? Colors.white.withOpacity(0.20) : Colors.white.withOpacity(0.16),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (selected) ...[
+              const Icon(Icons.check_rounded, size: 14, color: Colors.white),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              text,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _detailRow(String title, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -4916,45 +4880,6 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-
-  Widget _homeModeChip(String text, bool selected, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected
-              ? Colors.white.withOpacity(0.22)
-              : Colors.black.withOpacity(0.35),
-          borderRadius: BorderRadius.circular(9),
-          border: Border.all(
-            color: selected
-                ? Colors.white.withOpacity(0.22)
-                : Colors.white.withOpacity(0.18),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (selected) ...[
-              const Icon(Icons.check_rounded, color: Colors.white, size: 14),
-              const SizedBox(width: 5),
-            ],
-            Text(
-              text,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _dailyItem(String label, String type, VoidCallback onTap) {
     bool isSelected = selectedDayType == type;
 
@@ -4999,10 +4924,286 @@ class _MainScreenState extends State<MainScreen> {
   );
 }
 
-  void openFilterSheet() {
+  void openNotificationsSheet() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: widget.isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.72,
+            ),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        Icons.notifications_active_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Notifications",
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: widget.isDark ? Colors.white : const Color(0xFF1E1E2C),
+                            ),
+                          ),
+                          Text(
+                            "Admin updates and app alerts",
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: widget.isDark ? Colors.white60 : Colors.black54,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: Icon(
+                        Icons.close_rounded,
+                        color: widget.isDark ? Colors.white70 : Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: FirebaseFirestore.instance
+                        .collection('notifications')
+                        .orderBy('createdAt', descending: true)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return Center(
+                          child: Text(
+                            "Notifications load nahi ho paayi",
+                            style: TextStyle(
+                              color: widget.isDark ? Colors.white70 : Colors.black54,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        );
+                      }
+
+                      if (!snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      final docs = snapshot.data!.docs.where((doc) {
+                        final data = doc.data();
+                        final targetType = (data['targetType'] ?? 'all').toString();
+                        final targetUserId = (data['targetUserId'] ?? '').toString();
+
+                        return targetType == 'all' ||
+                            (targetType == 'single' && userId != null && targetUserId == userId);
+                      }).toList();
+
+                      if (docs.isEmpty) {
+                        return Center(
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(22),
+                            decoration: BoxDecoration(
+                              color: widget.isDark ? Colors.white10 : const Color(0xFFF4F6FA),
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.notifications_none_rounded,
+                                  size: 42,
+                                  color: widget.isDark ? Colors.white38 : Colors.black38,
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  "No notifications yet",
+                                  style: TextStyle(
+                                    color: widget.isDark ? Colors.white70 : Colors.black54,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+
+                      return ListView.separated(
+                        itemCount: docs.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final data = docs[index].data();
+                          final title = (data['title'] ?? '').toString();
+                          final body = (data['body'] ?? '').toString();
+                          final targetType = (data['targetType'] ?? 'all').toString();
+                          final createdAt = data['createdAt'];
+                          String timeText = "";
+
+                          if (createdAt is Timestamp) {
+                            final dt = createdAt.toDate();
+                            timeText = "${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+                          }
+
+                          return Dismissible(
+                            key: ValueKey(docs[index].id),
+                            direction: DismissDirection.endToStart,
+
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent,
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: const Icon(
+                                Icons.delete_rounded,
+                                color: Colors.white,
+                                size: 26,
+                              ),
+                            ),
+
+                            onDismissed: (_) async {
+                              final user = FirebaseAuth.instance.currentUser;
+
+                              if (user != null) {
+                                await FirebaseFirestore.instance
+                                    .collection('users')
+                                    .doc(user.uid)
+                                    .collection('dismissedNotifications')
+                                    .doc(docs[index].id)
+                                    .set({
+                                  'dismissedAt': FieldValue.serverTimestamp(),
+                                });
+                              }
+                            },
+
+                            child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: widget.isDark ? Colors.white10 : Colors.white,
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: widget.isDark ? Colors.white10 : Colors.grey.shade200,
+                              ),
+                              boxShadow: widget.isDark
+                                  ? []
+                                  : [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.05),
+                                        blurRadius: 12,
+                                        offset: const Offset(0, 5),
+                                      ),
+                                    ],
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF40407A).withOpacity(0.14),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: const Icon(
+                                    Icons.campaign_rounded,
+                                    color: Color(0xFF6C63FF),
+                                    size: 22,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              title.isEmpty ? "Notification" : title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: widget.isDark ? Colors.white : const Color(0xFF1E1E2C),
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                          ),
+                                          
+                                        ],
+                                      ),
+                                      const SizedBox(height: 5),
+                                      Text(
+                                        body,
+                                        style: TextStyle(
+                                          color: widget.isDark ? Colors.white70 : Colors.black54,
+                                          fontSize: 13,
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                      if (timeText.isNotEmpty) ...[
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          timeText,
+                                          style: TextStyle(
+                                            color: widget.isDark ? Colors.white38 : Colors.black38,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void openFilterSheet() {
+    showModalBottomSheet(
+      context: context,
       backgroundColor: widget.isDark ? Color(0xFF1E1E1E) : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -5010,15 +5211,10 @@ class _MainScreenState extends State<MainScreen> {
       builder: (_) {
         return StatefulBuilder(
           builder: (context, sheetSetState) {
-            return SafeArea(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.85,
-                ),
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(18, 18, 18, 18 + MediaQuery.of(context).viewInsets.bottom),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+            return Padding(
+              padding: EdgeInsets.all(18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -5099,11 +5295,9 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                     ),
                   ),
-                  ],
-                ),
+                ],
               ),
-            ),
-          );
+            );
           },
         );
       },
