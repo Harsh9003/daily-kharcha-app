@@ -188,18 +188,34 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> saveUserProfileToFirestore(User user) async {
-    await FirebaseFirestore.instance
+    final userRef = FirebaseFirestore.instance
         .collection('users')
-        .doc(user.uid)
-        .set({
-      'uid': user.uid,
-      'name': user.displayName ?? '',
-      'email': user.email ?? '',
-      'photoUrl': user.photoURL ?? '',
-      'role': 'user',
-      'isBlocked': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+        .doc(user.uid);
+
+    final doc = await userRef.get();
+
+    if (doc.exists) {
+      // Existing user hai, role/isBlocked/createdAt ko touch nahi karna
+      await userRef.set({
+        'uid': user.uid,
+        'name': user.displayName ?? '',
+        'email': user.email ?? '',
+        'photoUrl': user.photoURL ?? '',
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } else {
+      // New user hai tabhi default role user set karna
+      await userRef.set({
+        'uid': user.uid,
+        'name': user.displayName ?? '',
+        'email': user.email ?? '',
+        'photoUrl': user.photoURL ?? '',
+        'role': 'user',
+        'isBlocked': false,
+        'createdAt': FieldValue.serverTimestamp(),
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      });
+    }
   }
 
   Widget _featureTile(IconData icon, String text) {
@@ -2121,20 +2137,32 @@ class _MainScreenState extends State<MainScreen> {
                       },
                       child: AnimatedContainer(
                         duration: Duration(milliseconds: 250),
-                        width: showSearchBar ? 150 : 44,
+                        curve: Curves.easeOutCubic,
+                        width: showSearchBar ? 170 : 44,
                         height: 42,
                         padding: EdgeInsets.symmetric(horizontal: 12),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.13),
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        child: Row(
+                        // FIX: Row overflow aa raha tha animation ke time.
+                        // Jab width 44 se 170 hoti hai, Row ke andar TextField jaldi add ho jata tha.
+                        // Stack + ClipRect se content available width ke andar hi clipped rahega.
+                        clipBehavior: Clip.hardEdge,
+                        child: Stack(
+                          alignment: Alignment.centerLeft,
                           children: [
-                            Icon(Icons.search_rounded,
-                                color: Colors.white, size: 19),
-                            if (showSearchBar) ...[
-                              SizedBox(width: 8),
-                              Expanded(
+                            Icon(
+                              Icons.search_rounded,
+                              color: Colors.white,
+                              size: 19,
+                            ),
+                            if (showSearchBar)
+                              Positioned(
+                                left: 27,
+                                right: 0,
+                                top: 0,
+                                bottom: 0,
                                 child: TextField(
                                   controller: searchController,
                                   autofocus: false,
@@ -2145,12 +2173,11 @@ class _MainScreenState extends State<MainScreen> {
                                   cursorColor: Colors.white,
                                   decoration: InputDecoration(
                                     hintText: "Search",
-                                    hintStyle:
-                                        TextStyle(color: Colors.white54),
+                                    hintStyle: TextStyle(color: Colors.white54),
                                     border: InputBorder.none,
                                     isDense: true,
+                                    contentPadding: EdgeInsets.only(top: 11),
                                   ),
-                                  onTap: () {},
                                   onChanged: (value) {
                                     setState(() {
                                       searchQuery = value;
@@ -2158,7 +2185,6 @@ class _MainScreenState extends State<MainScreen> {
                                   },
                                 ),
                               ),
-                            ],
                           ],
                         ),
                       ),
@@ -2166,10 +2192,7 @@ class _MainScreenState extends State<MainScreen> {
 
                     SizedBox(width: 8),
 
-                    _topIconButton(
-                      icon: Icons.notifications_active_rounded,
-                      onTap: openNotificationsSheet,
-                    ),
+                    _notificationBellButton(),
 
                     SizedBox(width: 8),
 
@@ -4907,6 +4930,157 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  Widget _notificationBellButton() {
+    final uid = userId;
+
+    if (uid == null) {
+      return _topIconButton(
+        icon: Icons.notifications_active_rounded,
+        onTap: openNotificationsSheet,
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      builder: (context, userSnapshot) {
+        final lastOpenedAt = userSnapshot.data?.data()?['notificationsOpenedAt'];
+        DateTime? lastOpenedDate;
+        if (lastOpenedAt is Timestamp) {
+          lastOpenedDate = lastOpenedAt.toDate();
+        }
+
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('users')
+              .doc(uid)
+              .collection('dismissedNotifications')
+              .snapshots(),
+          builder: (context, dismissedSnapshot) {
+            final dismissedIds = dismissedSnapshot.hasData
+                ? dismissedSnapshot.data!.docs.map((e) => e.id).toSet()
+                : <String>{};
+
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('notifications')
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                int unreadCount = 0;
+
+                if (snapshot.hasData) {
+                  final now = DateTime.now();
+                  for (final doc in snapshot.data!.docs) {
+                    if (dismissedIds.contains(doc.id)) continue;
+
+                    final data = doc.data();
+                    final targetType = (data['targetType'] ?? 'all').toString();
+                    final targetUserId = (data['targetUserId'] ?? '').toString();
+                    final isForThisUser = targetType == 'all' ||
+                        (targetType == 'single' && targetUserId == uid);
+                    if (!isForThisUser) continue;
+
+                    final scheduledAt = data['scheduledAt'];
+                    if (scheduledAt is Timestamp && scheduledAt.toDate().isAfter(now)) {
+                      continue;
+                    }
+
+                    final createdAt = data['createdAt'];
+                    if (createdAt is Timestamp) {
+                      final createdDate = createdAt.toDate();
+                      if (lastOpenedDate == null || createdDate.isAfter(lastOpenedDate)) {
+                        unreadCount++;
+                      }
+                    } else if (lastOpenedDate == null) {
+                      unreadCount++;
+                    }
+                  }
+                }
+
+                final showBadge = unreadCount > 0;
+
+                return GestureDetector(
+                  onTap: openNotificationsSheet,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 1, end: showBadge ? 1.06 : 1),
+                    duration: const Duration(milliseconds: 650),
+                    curve: Curves.easeInOut,
+                    builder: (context, scale, child) {
+                      return Transform.scale(
+                        scale: scale,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: showBadge
+                                    ? Colors.white.withOpacity(0.18)
+                                    : Colors.white.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(14),
+                                boxShadow: showBadge
+                                    ? [
+                                        BoxShadow(
+                                          color: const Color(0xFFFF4D4D).withOpacity(0.34),
+                                          blurRadius: 18,
+                                          spreadRadius: 1,
+                                        ),
+                                      ]
+                                    : [],
+                              ),
+                              child: Icon(
+                                showBadge
+                                    ? Icons.notifications_active_rounded
+                                    : Icons.notifications_none_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                            if (showBadge)
+                              Positioned(
+                                right: -5,
+                                top: -6,
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 250),
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFFFF3B30), Color(0xFFFF7A59)],
+                                    ),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(color: Colors.white, width: 1.4),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.redAccent.withOpacity(0.4),
+                                        blurRadius: 10,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Text(
+                                    unreadCount > 4 ? '4+' : '$unreadCount',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 9,
+                                      height: 1,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _topIconButton({
   required IconData icon,
   required VoidCallback onTap,
@@ -4925,6 +5099,13 @@ class _MainScreenState extends State<MainScreen> {
 }
 
   void openNotificationsSheet() {
+    final uid = userId;
+    if (uid != null) {
+      FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'notificationsOpenedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -4995,159 +5176,177 @@ class _MainScreenState extends State<MainScreen> {
                 const SizedBox(height: 16),
                 Expanded(
                   child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: FirebaseFirestore.instance
-                        .collection('notifications')
-                        .orderBy('createdAt', descending: true)
-                        .snapshots(),
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError) {
-                        return Center(
-                          child: Text(
-                            "Notifications load nahi ho paayi",
-                            style: TextStyle(
-                              color: widget.isDark ? Colors.white70 : Colors.black54,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        );
-                      }
+                    // User ne jis notification ko swipe karke delete kiya hai,
+                    // uski id yaha se read hogi, fir notifications list se filter hogi.
+                    stream: FirebaseAuth.instance.currentUser == null
+                        ? const Stream<QuerySnapshot<Map<String, dynamic>>>.empty()
+                        : FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(FirebaseAuth.instance.currentUser!.uid)
+                            .collection('dismissedNotifications')
+                            .snapshots(),
+                    builder: (context, dismissedSnapshot) {
+                      final dismissedIds = dismissedSnapshot.hasData
+                          ? dismissedSnapshot.data!.docs.map((e) => e.id).toSet()
+                          : <String>{};
 
-                      if (!snapshot.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-
-                      final docs = snapshot.data!.docs.where((doc) {
-                        final data = doc.data();
-                        final targetType = (data['targetType'] ?? 'all').toString();
-                        final targetUserId = (data['targetUserId'] ?? '').toString();
-
-                        return targetType == 'all' ||
-                            (targetType == 'single' && userId != null && targetUserId == userId);
-                      }).toList();
-
-                      if (docs.isEmpty) {
-                        return Center(
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(22),
-                            decoration: BoxDecoration(
-                              color: widget.isDark ? Colors.white10 : const Color(0xFFF4F6FA),
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.notifications_none_rounded,
-                                  size: 42,
-                                  color: widget.isDark ? Colors.white38 : Colors.black38,
+                      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: FirebaseFirestore.instance
+                            .collection('notifications')
+                            .orderBy('createdAt', descending: true)
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasError) {
+                            return Center(
+                              child: Text(
+                                "Notifications load nahi ho paayi",
+                                style: TextStyle(
+                                  color: widget.isDark ? Colors.white70 : Colors.black54,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  "No notifications yet",
-                                  style: TextStyle(
-                                    color: widget.isDark ? Colors.white70 : Colors.black54,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-
-                      return ListView.separated(
-                        itemCount: docs.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final data = docs[index].data();
-                          final title = (data['title'] ?? '').toString();
-                          final body = (data['body'] ?? '').toString();
-                          final targetType = (data['targetType'] ?? 'all').toString();
-                          final createdAt = data['createdAt'];
-                          String timeText = "";
-
-                          if (createdAt is Timestamp) {
-                            final dt = createdAt.toDate();
-                            timeText = "${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+                              ),
+                            );
                           }
 
-                          return Dismissible(
-                            key: ValueKey(docs[index].id),
-                            direction: DismissDirection.endToStart,
+                          if (!snapshot.hasData) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
 
-                            background: Container(
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 20),
-                              decoration: BoxDecoration(
-                                color: Colors.redAccent,
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                              child: const Icon(
-                                Icons.delete_rounded,
-                                color: Colors.white,
-                                size: 26,
-                              ),
-                            ),
+                          final docs = snapshot.data!.docs.where((doc) {
+                            // Important fix:
+                            // Agar user ne notification delete/hide kar diya hai,
+                            // toh woh future reload/new notification ke saath wapas nahi aayegi.
+                            if (dismissedIds.contains(doc.id)) return false;
 
-                            onDismissed: (_) async {
-                              final user = FirebaseAuth.instance.currentUser;
+                            final data = doc.data();
+                            final scheduledAt = data['scheduledAt'];
+                            if (scheduledAt is Timestamp && scheduledAt.toDate().isAfter(DateTime.now())) {
+                              return false;
+                            }
 
-                              if (user != null) {
-                                await FirebaseFirestore.instance
-                                    .collection('users')
-                                    .doc(user.uid)
-                                    .collection('dismissedNotifications')
-                                    .doc(docs[index].id)
-                                    .set({
-                                  'dismissedAt': FieldValue.serverTimestamp(),
-                                });
-                              }
-                            },
+                            final targetType = (data['targetType'] ?? 'all').toString();
+                            final targetUserId = (data['targetUserId'] ?? '').toString();
 
-                            child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: widget.isDark ? Colors.white10 : Colors.white,
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(
-                                color: widget.isDark ? Colors.white10 : Colors.grey.shade200,
-                              ),
-                              boxShadow: widget.isDark
-                                  ? []
-                                  : [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.05),
-                                        blurRadius: 12,
-                                        offset: const Offset(0, 5),
+                            return targetType == 'all' ||
+                                (targetType == 'single' && userId != null && targetUserId == userId);
+                          }).toList();
+
+                          if (docs.isEmpty) {
+                            return Center(
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(22),
+                                decoration: BoxDecoration(
+                                  color: widget.isDark ? Colors.white10 : const Color(0xFFF4F6FA),
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.notifications_none_rounded,
+                                      size: 42,
+                                      color: widget.isDark ? Colors.white38 : Colors.black38,
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      "No notifications yet",
+                                      style: TextStyle(
+                                        color: widget.isDark ? Colors.white70 : Colors.black54,
+                                        fontWeight: FontWeight.w800,
                                       ),
-                                    ],
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  width: 42,
-                                  height: 42,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }
+
+                          return ListView.separated(
+                            itemCount: docs.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            itemBuilder: (context, index) {
+                              final data = docs[index].data();
+                              final title = (data['title'] ?? '').toString();
+                              final body = (data['body'] ?? '').toString();
+                              final createdAt = data['createdAt'];
+                              String timeText = "";
+
+                              if (createdAt is Timestamp) {
+                                final dt = createdAt.toDate();
+                                timeText = "${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+                              }
+
+                              return Dismissible(
+                                key: ValueKey(docs[index].id),
+                                direction: DismissDirection.endToStart,
+                                background: Container(
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.only(right: 20),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF40407A).withOpacity(0.14),
-                                    borderRadius: BorderRadius.circular(14),
+                                    color: Colors.redAccent,
+                                    borderRadius: BorderRadius.circular(18),
                                   ),
                                   child: const Icon(
-                                    Icons.campaign_rounded,
-                                    color: Color(0xFF6C63FF),
-                                    size: 22,
+                                    Icons.delete_rounded,
+                                    color: Colors.white,
+                                    size: 26,
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
+                                onDismissed: (_) async {
+                                  final user = FirebaseAuth.instance.currentUser;
+
+                                  if (user != null) {
+                                    await FirebaseFirestore.instance
+                                        .collection('users')
+                                        .doc(user.uid)
+                                        .collection('dismissedNotifications')
+                                        .doc(docs[index].id)
+                                        .set({
+                                      'dismissedAt': FieldValue.serverTimestamp(),
+                                    });
+                                  }
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: widget.isDark ? Colors.white10 : Colors.white,
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(
+                                      color: widget.isDark ? Colors.white10 : Colors.grey.shade200,
+                                    ),
+                                    boxShadow: widget.isDark
+                                        ? []
+                                        : [
+                                            BoxShadow(
+                                              color: Colors.black.withOpacity(0.05),
+                                              blurRadius: 12,
+                                              offset: const Offset(0, 5),
+                                            ),
+                                          ],
+                                  ),
+                                  child: Row(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
+                                      Container(
+                                        width: 42,
+                                        height: 42,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF40407A).withOpacity(0.14),
+                                          borderRadius: BorderRadius.circular(14),
+                                        ),
+                                        child: const Icon(
+                                          Icons.campaign_rounded,
+                                          color: Color(0xFF6C63FF),
+                                          size: 22,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
                                               title.isEmpty ? "Notification" : title,
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
@@ -5157,36 +5356,34 @@ class _MainScreenState extends State<MainScreen> {
                                                 fontWeight: FontWeight.w900,
                                               ),
                                             ),
-                                          ),
-                                          
-                                        ],
-                                      ),
-                                      const SizedBox(height: 5),
-                                      Text(
-                                        body,
-                                        style: TextStyle(
-                                          color: widget.isDark ? Colors.white70 : Colors.black54,
-                                          fontSize: 13,
-                                          height: 1.35,
+                                            const SizedBox(height: 5),
+                                            Text(
+                                              body,
+                                              style: TextStyle(
+                                                color: widget.isDark ? Colors.white70 : Colors.black54,
+                                                fontSize: 13,
+                                                height: 1.35,
+                                              ),
+                                            ),
+                                            if (timeText.isNotEmpty) ...[
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                timeText,
+                                                style: TextStyle(
+                                                  color: widget.isDark ? Colors.white38 : Colors.black38,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                       ),
-                                      if (timeText.isNotEmpty) ...[
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          timeText,
-                                          style: TextStyle(
-                                            color: widget.isDark ? Colors.white38 : Colors.black38,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ],
                                     ],
                                   ),
                                 ),
-                              ],
-                            ),
-                            ),
+                              );
+                            },
                           );
                         },
                       );
