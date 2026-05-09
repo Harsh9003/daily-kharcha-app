@@ -15,6 +15,8 @@ import 'package:timezone/timezone.dart' as tz;
 import 'services/notification_service.dart';
 import 'services/reset_service.dart';
 import 'services/recycle_bin_service.dart';
+import 'services/streak_service.dart';
+import 'widgets/streak_floating_card.dart';
 import 'admin/admin_gate.dart';
 
 GoogleSignIn buildGoogleSignIn() {
@@ -1845,6 +1847,13 @@ class _MainScreenState extends State<MainScreen> {
 
     await saveData();
 
+    final uid = userId;
+    if (uid != null) {
+      StreakService.updateStreakAfterTransaction(uid).catchError((e) {
+        debugPrint("🔥 Streak update failed: $e");
+      });
+    }
+
     _saveTransactionToFirestore(newTx).catchError((e) {
       debugPrint("❌ Firestore sync failed: $e");
     });
@@ -2035,6 +2044,10 @@ class _MainScreenState extends State<MainScreen> {
           ? Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (userId != null) ...[
+                  StreakFloatingCard(uid: userId!),
+                  const SizedBox(height: 10),
+                ],
                 FloatingActionButton(
                   heroTag: "limit",
                   backgroundColor: Colors.orange,
