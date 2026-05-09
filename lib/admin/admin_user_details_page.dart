@@ -225,6 +225,27 @@ class _AdminUserDetailsPageState extends State<AdminUserDetailsPage> {
                 icon: isBlocked ? Icons.block_rounded : Icons.verified_user_rounded,
                 color: isBlocked ? Colors.redAccent : Colors.green,
               ),
+              Divider(height: 24, color: Colors.grey.shade200),
+
+              StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(uid)
+                    .collection('userStats')
+                    .doc('streak')
+                    .snapshots(),
+                builder: (context, streakSnapshot) {
+                  final streakData = streakSnapshot.data?.data() ?? {};
+                  final currentStreak = streakData['currentStreak'] ?? 0;
+
+                  return _statTile(
+                    title: 'Current Streak',
+                    value: '$currentStreak Days',
+                    icon: Icons.local_fire_department_rounded,
+                    color: Colors.orange,
+                  );
+                },
+              ),
             ],
           ),
         ),
