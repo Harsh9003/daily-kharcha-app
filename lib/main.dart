@@ -18,6 +18,7 @@ import 'services/recycle_bin_service.dart';
 import 'services/streak_service.dart';
 import 'widgets/streak_floating_card.dart';
 import 'admin/admin_gate.dart';
+import 'web/web_dashboard_page.dart';
 
 GoogleSignIn buildGoogleSignIn() {
   return GoogleSignIn(
@@ -94,7 +95,7 @@ class AuthGate extends StatelessWidget {
 
         if (snapshot.hasData) {
           
-          return MainScreen(
+          return ResponsiveHomeWrapper(
             isDark: isDark,
             onThemeToggle: onThemeToggle,
           );
@@ -5918,6 +5919,35 @@ class _MainScreenState extends State<MainScreen> {
         return FadeTransition(
           opacity: curved,
           child: child,
+        );
+      },
+    );
+  }
+}
+class ResponsiveHomeWrapper extends StatelessWidget {
+  final bool isDark;
+  final VoidCallback onThemeToggle;
+
+  const ResponsiveHomeWrapper({
+    super.key,
+    required this.isDark,
+    required this.onThemeToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 1100) {
+          return WebDashboardPage(
+            isDark: isDark,
+            onThemeToggle: onThemeToggle,
+          );
+        }
+
+        return MainScreen(
+          isDark: isDark,
+          onThemeToggle: onThemeToggle,
         );
       },
     );
