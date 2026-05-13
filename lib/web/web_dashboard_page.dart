@@ -1,3 +1,4 @@
+// Limit modes update applied
 // UPDATED_WEB_DASHBOARD_V4_PREMIUM_FILTER_DROPDOWN_PROFILE_FIXED
 import 'dart:async';
 import 'dart:math' as math;
@@ -243,6 +244,7 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
           onTransactionTap: _openTransactionDetails,
           onSetLimit: _openLimitDialog,
           userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+          selectedMonth: selectedMonth,
         );
     }
   }
@@ -454,106 +456,232 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
 
     final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
     final data = doc.data() ?? <String, dynamic>{};
-    final monthlyController = TextEditingController(text: ((data['monthlyLimit'] as num?)?.toDouble() ?? 0) > 0 ? ((data['monthlyLimit'] as num).toDouble()).toStringAsFixed(0) : '');
-    final dailyController = TextEditingController(text: ((data['dailyLimit'] as num?)?.toDouble() ?? 0) > 0 ? ((data['dailyLimit'] as num).toDouble()).toStringAsFixed(0) : '');
+    final monthKey = _limitMonthKey(selectedMonth);
+    final globalMonthlyLimit = _limitToDouble(data['monthlyLimit']);
+    final selectedMonthLimit = _monthLimitFromUserData(data, selectedMonth);
+    final dailyLimit = _limitToDouble(data['dailyLimit']);
+
+    var limitMode = selectedMonthLimit > 0 ? 'month' : 'all';
+    final monthlyController = TextEditingController(
+      text: (limitMode == 'month' ? selectedMonthLimit : globalMonthlyLimit) > 0
+          ? (limitMode == 'month' ? selectedMonthLimit : globalMonthlyLimit).toStringAsFixed(0)
+          : '',
+    );
+    final dailyController = TextEditingController(text: dailyLimit > 0 ? dailyLimit.toStringAsFixed(0) : '');
 
     await showDialog(
       context: context,
       barrierDismissible: true,
       builder: (dialogContext) {
         final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          child: Container(
-            width: 500,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF151B2E) : Colors.white,
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(color: isDark ? Colors.white12 : Colors.black.withOpacity(.06)),
-              boxShadow: [BoxShadow(color: const Color(0xFF6C3BFF).withOpacity(.24), blurRadius: 38, offset: const Offset(0, 18))],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      height: 52,
-                      width: 52,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(colors: [Color(0xFF22C55E), Color(0xFF14B8A6)]),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: const Icon(Icons.savings_rounded, color: Colors.white),
-                    ),
-                    const SizedBox(width: 14),
-                    const Expanded(child: Text('Set Expense Limit', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900))),
-                    IconButton(onPressed: () => Navigator.pop(dialogContext), icon: const Icon(Icons.close_rounded)),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                _PremiumField(
-                  child: TextField(
-                    controller: monthlyController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Monthly Limit', prefixText: '₹ ', border: InputBorder.none),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _PremiumField(
-                  child: TextField(
-                    controller: dailyController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Daily Limit', prefixText: '₹ ', border: InputBorder.none),
-                  ),
-                ),
-                const SizedBox(height: 22),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(dialogContext),
-                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-                        child: const Text('Cancel'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final monthly = double.tryParse(monthlyController.text.trim()) ?? 0;
-                          final daily = double.tryParse(dailyController.text.trim()) ?? 0;
-                          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-                            'monthlyLimit': monthly,
-                            'dailyLimit': daily,
-                            'limitUpdatedAt': FieldValue.serverTimestamp(),
-                          }, SetOptions(merge: true));
+        final monthLabel = _monthName(selectedMonth);
 
-                          if (dialogContext.mounted) Navigator.pop(dialogContext);
-                          if (!mounted) return;
-                          _showPremiumToast(
-                            title: 'Limit updated',
-                            message: 'Daily aur monthly expense limit save ho gayi hai.',
-                            icon: Icons.check_circle_rounded,
-                          );
-                        },
-                        icon: const Icon(Icons.check_rounded),
-                        label: const Text('Save Limit'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          backgroundColor: const Color(0xFF6C3BFF),
-                          foregroundColor: Colors.white,
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void switchLimitMode(String mode) {
+              if (limitMode == mode) return;
+              setDialogState(() {
+                limitMode = mode;
+                final newValue = mode == 'month' ? selectedMonthLimit : globalMonthlyLimit;
+                monthlyController.text = newValue > 0 ? newValue.toStringAsFixed(0) : '';
+              });
+            }
+
+            Widget modeChip({
+              required String mode,
+              required String title,
+              required String subtitle,
+              required IconData icon,
+            }) {
+              final selected = limitMode == mode;
+              return Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => switchLimitMode(mode),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                    decoration: BoxDecoration(
+                      gradient: selected
+                          ? const LinearGradient(colors: [Color(0xFF7C3AED), Color(0xFF4F46E5)])
+                          : null,
+                      color: selected ? null : Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: selected ? Colors.white.withOpacity(.10) : Colors.transparent),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(icon, size: 18, color: selected ? Colors.white : (isDark ? Colors.white70 : const Color(0xFF4B3F72))),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: selected ? Colors.white : (isDark ? Colors.white : const Color(0xFF211B3C)))),
+                              const SizedBox(height: 2),
+                              Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: selected ? Colors.white.withOpacity(.82) : (isDark ? Colors.white54 : Colors.black45))),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: Container(
+                width: 520,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF151B2E) : Colors.white,
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: isDark ? Colors.white12 : Colors.black.withOpacity(.06)),
+                  boxShadow: [BoxShadow(color: const Color(0xFF6C3BFF).withOpacity(.24), blurRadius: 38, offset: const Offset(0, 18))],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          height: 52,
+                          width: 52,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(colors: [Color(0xFF22C55E), Color(0xFF14B8A6)]),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: const Icon(Icons.savings_rounded, color: Colors.white),
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(child: Text('Set Expense Limit', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900))),
+                        IconButton(onPressed: () => Navigator.pop(dialogContext), icon: const Icon(Icons.close_rounded)),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white.withOpacity(.055) : const Color(0xFFF3F0FF),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: isDark ? Colors.white10 : const Color(0xFFE2D8FF)),
+                      ),
+                      child: Row(
+                        children: [
+                          modeChip(mode: 'all', title: 'All Months', subtitle: 'Global monthly limit', icon: Icons.public_rounded),
+                          const SizedBox(width: 6),
+                          modeChip(mode: 'month', title: 'This Month', subtitle: '$monthLabel only', icon: Icons.calendar_month_rounded),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _PremiumField(
+                      child: TextField(
+                        controller: monthlyController,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: limitMode == 'all' ? 'Monthly Limit for All Months' : 'Monthly Limit for $monthLabel',
+                          prefixText: '₹ ',
+                          border: InputBorder.none,
                         ),
                       ),
                     ),
+                    const SizedBox(height: 14),
+                    _PremiumField(
+                      child: TextField(
+                        controller: dailyController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Daily Limit', prefixText: '₹ ', border: InputBorder.none),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      limitMode == 'all'
+                          ? 'This monthly limit will apply to every month unless a month-specific limit is saved.'
+                          : 'This limit will apply only to $monthLabel. Other months will keep the global limit.',
+                      style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.black54, height: 1.35),
+                    ),
+                    const SizedBox(height: 22),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              final monthly = double.tryParse(monthlyController.text.trim()) ?? 0;
+                              final daily = double.tryParse(dailyController.text.trim()) ?? 0;
+                              final updateData = <String, dynamic>{
+                                'dailyLimit': daily,
+                                'limitMode': limitMode == 'month' ? 'thisMonth' : 'allMonths',
+                                'limitUpdatedAt': FieldValue.serverTimestamp(),
+                              };
+
+                              if (limitMode == 'all') {
+                                updateData['monthlyLimit'] = monthly;
+                              } else {
+                                final freshDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+                                final freshData = freshDoc.data() ?? <String, dynamic>{};
+
+                                final monthlyLimitsByMonth = freshData['monthlyLimitsByMonth'] is Map
+                                    ? Map<String, dynamic>.from(freshData['monthlyLimitsByMonth'] as Map)
+                                    : <String, dynamic>{};
+                                final monthlyLimits = freshData['monthlyLimits'] is Map
+                                    ? Map<String, dynamic>.from(freshData['monthlyLimits'] as Map)
+                                    : <String, dynamic>{};
+                                final monthLimits = freshData['monthLimits'] is Map
+                                    ? Map<String, dynamic>.from(freshData['monthLimits'] as Map)
+                                    : <String, dynamic>{};
+
+                                monthlyLimitsByMonth[monthKey] = monthly;
+                                monthlyLimits[monthKey] = monthly;
+                                monthLimits[monthKey] = monthly;
+
+                                updateData['monthlyLimitsByMonth'] = monthlyLimitsByMonth;
+                                updateData['monthlyLimits'] = monthlyLimits;
+                                updateData['monthLimits'] = monthLimits;
+                                updateData['selectedMonthLimit'] = monthly;
+                                updateData['selectedMonthLimitKey'] = monthKey;
+                              }
+
+                              await FirebaseFirestore.instance.collection('users').doc(user.uid).set(updateData, SetOptions(merge: true));
+
+                              if (dialogContext.mounted) Navigator.pop(dialogContext);
+                              if (!mounted) return;
+                              _showPremiumToast(
+                                title: 'Limit updated',
+                                message: limitMode == 'month'
+                                    ? '$monthLabel ki monthly limit save ho gayi hai.'
+                                    : 'All months ke liye monthly limit save ho gayi hai.',
+                                icon: Icons.check_circle_rounded,
+                              );
+                            },
+                            icon: const Icon(Icons.check_rounded),
+                            label: const Text('Save Limit'),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              backgroundColor: const Color(0xFF6C3BFF),
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -1832,6 +1960,7 @@ class _DashboardPage extends StatelessWidget {
   final ValueChanged<WebTx> onTransactionTap;
   final VoidCallback onSetLimit;
   final String userId;
+  final DateTime selectedMonth;
 
   const _DashboardPage({
     super.key,
@@ -1843,11 +1972,14 @@ class _DashboardPage extends StatelessWidget {
     required this.onTransactionTap,
     required this.onSetLimit,
     required this.userId,
+    required this.selectedMonth,
   });
 
   @override
   Widget build(BuildContext context) {
     final topCategory = topCategories.isEmpty ? null : topCategories.first;
+
+    final int currentStreak = _calculateLatestTransactionStreak(allTransactions);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
@@ -1860,9 +1992,9 @@ class _DashboardPage extends StatelessWidget {
             children: [
               Expanded(child: _SummaryCard(title: 'Filtered Expense', amount: '₹ ${totalExpense.toStringAsFixed(0)}', subtitle: 'Selected period total', icon: Icons.payments_rounded, gradientColors: const [Color(0xFF7C3AED), Color(0xFF4F46E5)])),
               const SizedBox(width: 18),
-              Expanded(child: _LimitSummaryCard(userId: userId, totalExpense: totalExpense, onSetLimit: onSetLimit)),
+              Expanded(child: _LimitSummaryCard(userId: userId, totalExpense: totalExpense, selectedMonth: selectedMonth, onSetLimit: onSetLimit)),
               const SizedBox(width: 18),
-              Expanded(child: _SummaryCard(title: 'Streak', amount: '${_calculateCurrentStreak(allTransactions)} Days', subtitle: 'Keep adding daily expense', icon: Icons.local_fire_department_rounded, gradientColors: const [Color(0xFFFF7A18), Color(0xFFFF3D81)])),
+              Expanded(child: _SummaryCard(title: 'Streak', amount: '$currentStreak Days', subtitle: currentStreak > 0 ? 'Active expense streak' : 'Keep adding daily expense', icon: Icons.local_fire_department_rounded, gradientColors: const [Color(0xFFFF7A18), Color(0xFFFF3D81)])),
               const SizedBox(width: 18),
               Expanded(child: _SummaryCard(title: 'Top Category', amount: topCategory?.key ?? '-', subtitle: topCategory == null ? 'No data' : '₹ ${topCategory.value.toStringAsFixed(0)}', icon: Icons.category_rounded, gradientColors: const [Color(0xFFFB7185), Color(0xFFF97316)])),
             ],
@@ -1884,39 +2016,13 @@ class _DashboardPage extends StatelessWidget {
   }
 }
 
-int _calculateCurrentStreak(List<WebTx> transactions) {
-  if (transactions.isEmpty) return 0;
-
-  final txDays = transactions
-      .map((tx) => DateTime(tx.date.year, tx.date.month, tx.date.day))
-      .toSet();
-
-  var cursor = DateTime.now();
-  cursor = DateTime(cursor.year, cursor.month, cursor.day);
-
-  if (!txDays.contains(cursor)) {
-    final yesterday = cursor.subtract(const Duration(days: 1));
-    if (txDays.contains(yesterday)) {
-      cursor = yesterday;
-    } else {
-      return 0;
-    }
-  }
-
-  var streak = 0;
-  while (txDays.contains(cursor)) {
-    streak++;
-    cursor = cursor.subtract(const Duration(days: 1));
-  }
-  return streak;
-}
-
 class _LimitSummaryCard extends StatelessWidget {
   final String userId;
   final double totalExpense;
+  final DateTime selectedMonth;
   final VoidCallback onSetLimit;
 
-  const _LimitSummaryCard({required this.userId, required this.totalExpense, required this.onSetLimit});
+  const _LimitSummaryCard({required this.userId, required this.totalExpense, required this.selectedMonth, required this.onSetLimit});
 
   @override
   Widget build(BuildContext context) {
@@ -1934,9 +2040,12 @@ class _LimitSummaryCard extends StatelessWidget {
       stream: FirebaseFirestore.instance.collection('users').doc(userId).snapshots(),
       builder: (context, snapshot) {
         final data = snapshot.data?.data() ?? <String, dynamic>{};
-        final dailyLimit = (data['dailyLimit'] as num?)?.toDouble() ?? 0;
-        final monthlyLimit = (data['monthlyLimit'] as num?)?.toDouble() ?? 0;
+        final dailyLimit = _limitToDouble(data['dailyLimit']);
+        final globalMonthlyLimit = _limitToDouble(data['monthlyLimit']);
+        final monthSpecificLimit = _monthLimitFromUserData(data, selectedMonth);
+        final monthlyLimit = monthSpecificLimit > 0 ? monthSpecificLimit : globalMonthlyLimit;
         final displayLimit = monthlyLimit > 0 ? monthlyLimit : dailyLimit;
+        final isMonthSpecific = monthSpecificLimit > 0;
         final isCrossed = displayLimit > 0 && totalExpense > displayLimit;
         final remaining = displayLimit > 0 ? (displayLimit - totalExpense) : 0;
 
@@ -1944,7 +2053,7 @@ class _LimitSummaryCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(22),
           onTap: onSetLimit,
           child: _SummaryCard(
-            title: monthlyLimit > 0 ? 'Monthly Limit' : 'Daily Limit',
+            title: monthlyLimit > 0 ? (isMonthSpecific ? '${_monthName(selectedMonth)} Limit' : 'Monthly Limit') : 'Daily Limit',
             amount: displayLimit > 0 ? '₹ ${displayLimit.toStringAsFixed(0)}' : 'Not set',
             subtitle: displayLimit <= 0
                 ? 'Tap to set limit'
@@ -3269,6 +3378,66 @@ class _InitialAvatar extends StatelessWidget {
       child: Text(initial, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
     );
   }
+}
+
+
+double _limitToDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value) ?? 0;
+  return 0;
+}
+
+String _limitMonthKey(DateTime date) => '${date.year}-${date.month.toString().padLeft(2, '0')}';
+
+String _dateKey(DateTime date) => '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+double _monthLimitFromUserData(Map<String, dynamic> data, DateTime selectedMonth) {
+  final monthKey = _limitMonthKey(selectedMonth);
+  final possibleMaps = [
+    data['monthlyLimitsByMonth'],
+    data['monthlyLimits'],
+    data['monthLimits'],
+  ];
+
+  for (final raw in possibleMaps) {
+    if (raw is Map) {
+      final map = Map<String, dynamic>.from(raw);
+      final value = _limitToDouble(map[monthKey]);
+      if (value > 0) return value;
+    }
+  }
+
+  if ((data['selectedMonthLimitKey'] ?? '').toString() == monthKey) {
+    final value = _limitToDouble(data['selectedMonthLimit']);
+    if (value > 0) return value;
+  }
+
+  return 0;
+}
+
+int _calculateLatestTransactionStreak(List<WebTx> transactions) {
+  if (transactions.isEmpty) return 0;
+
+  final days = <String>{};
+  DateTime? latestDay;
+
+  for (final tx in transactions) {
+    final day = DateTime(tx.date.year, tx.date.month, tx.date.day);
+    days.add(_dateKey(day));
+    if (latestDay == null || day.isAfter(latestDay)) {
+      latestDay = day;
+    }
+  }
+
+  if (latestDay == null) return 0;
+
+  var cursor = latestDay;
+  var streak = 0;
+  while (days.contains(_dateKey(cursor))) {
+    streak++;
+    cursor = cursor.subtract(const Duration(days: 1));
+  }
+  return streak;
 }
 
 String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';

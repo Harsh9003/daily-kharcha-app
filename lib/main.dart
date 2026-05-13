@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -493,6 +494,10 @@ class _MainScreenState extends State<MainScreen> {
   int currentIndex = savedCurrentIndex;
   String? get userId => FirebaseAuth.instance.currentUser?.uid;
 
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _adminNotificationSubscription;
+  final Set<String> _shownAdminNotificationIds = <String>{};
+  late final DateTime _notificationListenerStartedAt = DateTime.now();
+
   bool reminderEnabled = false;
   String reminderText = "Aaj ka transaction add karna mat bhoolna";
   TimeOfDay reminderTime = const TimeOfDay(hour: 20, minute: 0);
@@ -520,6 +525,7 @@ class _MainScreenState extends State<MainScreen> {
   String selectedModeFilter = "All";
   String selectedCategoryFilter = "All";
   final TextEditingController searchController = TextEditingController();
+  final FocusNode searchFocusNode = FocusNode();
 
   String reportView = "Monthly";
   bool showPercentage = false;
@@ -528,6 +534,11 @@ class _MainScreenState extends State<MainScreen> {
 
   double dailyLimit = 0;
   double monthlyLimit = 0;
+  Map<int, double> monthlyLimitsByMonth = {};
+
+  double getMonthlyLimitForSelectedMonth() {
+    return monthlyLimitsByMonth[selectedMonth] ?? monthlyLimit;
+  }
 
   bool isInternetAvailable = true;
 
@@ -538,7 +549,69 @@ class _MainScreenState extends State<MainScreen> {
 
     currentUser = FirebaseAuth.instance.currentUser;
     loadData();
+    _listenForAdminNotifications();
   }
+
+  @override
+  void dispose() {
+    _adminNotificationSubscription?.cancel();
+    searchController.dispose();
+    searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _listenForAdminNotifications() {
+    final uid = userId;
+    if (uid == null) return;
+
+    _adminNotificationSubscription?.cancel();
+    _adminNotificationSubscription = FirebaseFirestore.instance
+        .collection('notifications')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((snapshot) {
+      final now = DateTime.now();
+
+      for (final change in snapshot.docChanges) {
+        if (change.type != DocumentChangeType.added) continue;
+
+        final doc = change.doc;
+        if (_shownAdminNotificationIds.contains(doc.id)) continue;
+
+        final data = doc.data();
+        if (data == null) continue;
+
+        final targetType = (data['targetType'] ?? 'all').toString();
+        final targetUserId = (data['targetUserId'] ?? '').toString();
+        final isForThisUser = targetType == 'all' ||
+            (targetType == 'single' && targetUserId == uid);
+        if (!isForThisUser) continue;
+
+        final scheduledAt = data['scheduledAt'];
+        if (scheduledAt is Timestamp && scheduledAt.toDate().isAfter(now)) {
+          continue;
+        }
+
+        final createdAt = data['createdAt'];
+        if (createdAt is Timestamp &&
+            createdAt.toDate().isBefore(_notificationListenerStartedAt.subtract(const Duration(seconds: 3)))) {
+          _shownAdminNotificationIds.add(doc.id);
+          continue;
+        }
+
+        final title = (data['title'] ?? 'Daily Kharcha').toString().trim();
+        final body = (data['body'] ?? data['message'] ?? 'New admin notification').toString().trim();
+
+        _shownAdminNotificationIds.add(doc.id);
+        NotificationService.showAdminNotification(
+          id: (doc.id.hashCode & 0x7fffffff).toString(),
+          title: title.isEmpty ? 'Daily Kharcha' : title,
+          body: body.isEmpty ? 'New admin notification' : body,
+        );
+      }
+    });
+  }
+
   Future<void> _saveTransactionToFirestore(Map<String, dynamic> tx) async {
     if (userId == null) {
       debugPrint("❌ No logged in user");
@@ -1592,6 +1665,7 @@ class _MainScreenState extends State<MainScreen> {
 
       dailyLimit = 0;
       monthlyLimit = 0;
+      monthlyLimitsByMonth.clear();
       selectedWeekIndex = 0;
       showPercentage = false;
       reportChartType = "List";
@@ -1657,6 +1731,7 @@ class _MainScreenState extends State<MainScreen> {
     await prefs.remove('selectedDayType');
     await prefs.remove('dailyLimit');
     await prefs.remove('monthlyLimit');
+    await prefs.remove('monthlyLimitsByMonth');
     await prefs.remove('reportView');
     await prefs.remove('reportChartType');
     await prefs.remove('selectedDate');
@@ -1682,6 +1757,7 @@ class _MainScreenState extends State<MainScreen> {
       selectedWeekIndex = 0;
       dailyLimit = 0;
       monthlyLimit = 0;
+      monthlyLimitsByMonth.clear();
     });
   }
 
@@ -1709,6 +1785,10 @@ class _MainScreenState extends State<MainScreen> {
       await prefs.setString('selectedDayType', selectedDayType);
       await prefs.setDouble('dailyLimit', dailyLimit);
       await prefs.setDouble('monthlyLimit', monthlyLimit);
+      await prefs.setString(
+        'monthlyLimitsByMonth',
+        jsonEncode(monthlyLimitsByMonth.map((key, value) => MapEntry(key.toString(), value))),
+      );
       await prefs.setString('reportView', reportView);
       await prefs.setString('reportChartType', reportChartType);
       await prefs.setString('selectedDate', selectedDate.toIso8601String());
@@ -1778,6 +1858,13 @@ class _MainScreenState extends State<MainScreen> {
     selectedDayType = prefs.getString('selectedDayType') ?? selectedDayType;
     dailyLimit = prefs.getDouble('dailyLimit') ?? dailyLimit;
     monthlyLimit = prefs.getDouble('monthlyLimit') ?? monthlyLimit;
+    final savedMonthlyLimitsByMonth = prefs.getString('monthlyLimitsByMonth');
+    if (savedMonthlyLimitsByMonth != null && savedMonthlyLimitsByMonth.isNotEmpty) {
+      final decodedMonthlyLimits = jsonDecode(savedMonthlyLimitsByMonth) as Map<String, dynamic>;
+      monthlyLimitsByMonth = decodedMonthlyLimits.map(
+        (key, value) => MapEntry(int.parse(key), (value as num).toDouble()),
+      );
+    }
     reportView = prefs.getString('reportView') ?? reportView;
     reportChartType = prefs.getString('reportChartType') ?? reportChartType;
     selectedWeekIndex = prefs.getInt('selectedWeekIndex') ?? selectedWeekIndex;
@@ -1894,7 +1981,7 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  double get currentLimit => viewMode == "Daily" ? dailyLimit : monthlyLimit;
+  double get currentLimit => viewMode == "Daily" ? dailyLimit : getMonthlyLimitForSelectedMonth();
   double get remaining => currentLimit == 0 ? 0 : currentLimit - total;
 
   Color get limitColor {
@@ -2188,19 +2275,30 @@ class _MainScreenState extends State<MainScreen> {
 
                     GestureDetector(
                       onTap: () {
-                        setState(() {
-                          showSearchBar = !showSearchBar;
-                          if (!showSearchBar) {
+                        if (showSearchBar) {
+                          setState(() {
+                            showSearchBar = false;
                             searchQuery = "";
                             searchController.clear();
-                            FocusScope.of(context).unfocus();
-                          }
-                        });
+                          });
+                          searchFocusNode.unfocus();
+                        } else {
+                          setState(() {
+                            showSearchBar = true;
+                          });
+
+                          // Single tap par search box open hote hi keyboard bhi open ho.
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted && showSearchBar) {
+                              searchFocusNode.requestFocus();
+                            }
+                          });
+                        }
                       },
                       child: AnimatedContainer(
                         duration: Duration(milliseconds: 250),
                         curve: Curves.easeOutCubic,
-                        width: showSearchBar ? 170 : 44,
+                        width: showSearchBar ? 138 : 44,
                         height: 42,
                         padding: EdgeInsets.symmetric(horizontal: 12),
                         decoration: BoxDecoration(
@@ -2227,7 +2325,8 @@ class _MainScreenState extends State<MainScreen> {
                                 bottom: 0,
                                 child: TextField(
                                   controller: searchController,
-                                  autofocus: false,
+                                  focusNode: searchFocusNode,
+                                  autofocus: true,
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 13,
@@ -2492,7 +2591,7 @@ class _MainScreenState extends State<MainScreen> {
               child: filtered.isEmpty
                   ? ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.only(bottom: 130, top: 90),
+                      padding: const EdgeInsets.only(bottom: 190, top: 90),
                       children: const [
                         Center(
                           child: Text(
@@ -2504,7 +2603,7 @@ class _MainScreenState extends State<MainScreen> {
                     )
                   : ListView.builder(
                       physics: const AlwaysScrollableScrollPhysics(),
-                      padding: EdgeInsets.only(bottom: 130),
+                      padding: const EdgeInsets.only(bottom: 190),
                       itemCount: filtered.length,
                       itemBuilder: (_, i) {
                         var tx = filtered[i];
@@ -2535,16 +2634,53 @@ class _MainScreenState extends State<MainScreen> {
                   },
                   child: ListTile(
                     onTap: () => openTransactionDetail(tx),
-                    title: Text(tx['category']),
-                    subtitle: Text(
-                      "${tx['date'].day}/${tx['date'].month} ${tx['date'].hour}:${tx['date'].minute.toString().padLeft(2, '0')}",
+                    title: Text(
+                      tx['category'],
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: widget.isDark ? Colors.white : const Color(0xFF171727),
+                      ),
+                    ),
+                    subtitle: Row(
+                      children: [
+                        Text(
+                          "${tx['date'].day}/${tx['date'].month} | ${tx['date'].hour}:${tx['date'].minute.toString().padLeft(2, '0')}",
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: widget.isDark
+                                ? Colors.white.withOpacity(0.55)
+                                : const Color(0xFF171727).withOpacity(0.52),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        if ((tx['note'] ?? '').toString().trim().isNotEmpty) ...[
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              (tx['note'] ?? '').toString(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: widget.isDark
+                                    ? Colors.white.withOpacity(0.38)
+                                    : const Color(0xFF2C2C54).withOpacity(0.52),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     trailing: Text(
                       "₹ ${tx['amount'].toStringAsFixed(0)}",
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
-                        color: Colors.greenAccent,
+                        color: widget.isDark
+                            ? Colors.greenAccent
+                            : const Color(0xFF4B3F8F),
                       ),
                     ),
                   ),
@@ -2655,7 +2791,7 @@ class _MainScreenState extends State<MainScreen> {
                   "Total: ₹ ${totalAmount.toStringAsFixed(0)}",
                   style: TextStyle(
                     fontSize: 18,
-                    color: Colors.greenAccent,
+                    color: isDark ? Colors.greenAccent : const Color.fromARGB(255, 235, 235, 238),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -2965,8 +3101,8 @@ class _MainScreenState extends State<MainScreen> {
                                                 : "${((entry.value / totalAmount) * 100).toStringAsFixed(1)}%")
                                             : "₹ ${entry.value.toStringAsFixed(0)}",
                                         style: TextStyle(
-                                          color: Colors.greenAccent,
-                                          fontWeight: FontWeight.w600,
+                                          color: isDark ? Colors.greenAccent : const Color(0xFF4B3F8F),
+                                          fontWeight: FontWeight.w700,
                                         ),
                                       ),
                                     )
@@ -4224,181 +4360,450 @@ class _MainScreenState extends State<MainScreen> {
   }
   
   void openTransactionDetail(Map<String, dynamic> tx) {
-    final TextEditingController noteController =
-        TextEditingController(text: tx['note'] ?? '');
-        String selectedMode = tx['mode'] ?? "Cash";
+    final TextEditingController amountController = TextEditingController(
+      text: ((tx['amount'] as num?) ?? 0).toStringAsFixed(0),
+    );
+    final TextEditingController noteController = TextEditingController(
+      text: (tx['note'] ?? '').toString(),
+    );
+
+    String selectedCategory = (tx['category'] ?? 'Food').toString();
+    String selectedMode = (tx['mode'] ?? 'Cash').toString();
+
+    Future<void> openPremiumCategorySheet(
+      StateSetter dialogSetState,
+    ) async {
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) {
+          final bool isDarkMode = widget.isDark;
+          return SafeArea(
+            child: Container(
+              margin: const EdgeInsets.all(14),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+              decoration: BoxDecoration(
+                color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+                borderRadius: BorderRadius.circular(26),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.18),
+                    blurRadius: 28,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 48,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.35),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.category_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Select Category',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: isDarkMode ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Choose where this expense belongs',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDarkMode ? Colors.white54 : Colors.black45,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.48,
+                    ),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: categories.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, index) {
+                        final item = categories[index];
+                        final bool selected = item == selectedCategory;
+                        final Color itemColor = categoryColors[item] ?? Colors.teal;
+
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(18),
+                          onTap: () {
+                            dialogSetState(() => selectedCategory = item);
+                            Navigator.pop(context);
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 220),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? const Color(0xFF2C2C54).withOpacity(isDarkMode ? 0.55 : 0.10)
+                                  : (isDarkMode ? Colors.white.withOpacity(0.06) : Colors.grey.shade100),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: selected ? const Color(0xFF2C2C54) : Colors.transparent,
+                                width: 1.2,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    color: itemColor.withOpacity(0.16),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Icon(
+                                    Icons.label_rounded,
+                                    color: itemColor,
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    item,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: isDarkMode ? Colors.white : Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                                if (selected)
+                                  const Icon(
+                                    Icons.check_circle_rounded,
+                                    color: Color(0xFF2C2C54),
+                                    size: 22,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    }
 
     showDialog(
       context: context,
       builder: (_) {
-      return StatefulBuilder(
-        builder: (context, dialogSetState) {
+        return StatefulBuilder(
+          builder: (context, dialogSetState) {
+            final bool isDarkMode = widget.isDark;
+            final Color panelColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
+            final Color textColor = isDarkMode ? Colors.white : Colors.black87;
+            final Color hintColor = isDarkMode ? Colors.white54 : Colors.black45;
+            final Color fieldColor = isDarkMode ? Colors.white.withOpacity(0.07) : Colors.grey.shade100;
+
             return Dialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+              backgroundColor: Colors.transparent,
               child: Container(
-                padding: EdgeInsets.all(20),
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.88,
+                ),
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
+                  color: panelColor,
+                  borderRadius: BorderRadius.circular(26),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.18),
+                      blurRadius: 30,
+                      offset: const Offset(0, 12),
+                    ),
+                  ],
                 ),
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        "Transaction Detail",
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        "₹ ${(tx['amount'] as double).toStringAsFixed(0)}",
-                        style: TextStyle(
-                          fontSize: 26,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF2C2C54),
-                        ),
-                      ),
-                      SizedBox(height: 12),
-
-                      _detailRow("Category", tx['category']),
-                      _detailRow(
-                        "Date",
-                        "${tx['date'].day}/${tx['date'].month}/${tx['date'].year}",
-                      ),
-                      _detailRow(
-                        "Time",
-                        "${tx['date'].hour.toString().padLeft(2, '0')}:${tx['date'].minute.toString().padLeft(2, '0')}",
-                      ),
-                      SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          "Mode",
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ),
-
-                      SizedBox(height: 8),
-
                       Row(
                         children: [
-                          _modeChip(
-                            title: "Cash",
-                            selected: selectedMode == "Cash",
-                            onTap: () {
-                              dialogSetState(() {
-                                selectedMode = "Cash";
-                              });
-                            },
-                          ),
-                          SizedBox(width: 8),
-                          _modeChip(
-                            title: "UPI",
-                            selected: selectedMode == "UPI",
-                            onTap: () {
-                              dialogSetState(() {
-                                selectedMode = "UPI";
-                              });
-                            },
-                          ),
-                          SizedBox(width: 8),
-                          _modeChip(
-                            title: "Card",
-                            selected: selectedMode == "Card",
-                            onTap: () {
-                              dialogSetState(() {
-                                selectedMode = "Card";
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-
-                      SizedBox(height: 14),
-
-                      TextField(
-                        controller: noteController,
-                        maxLines: 3,
-                        style: TextStyle(color: Colors.black),
-                        decoration: InputDecoration(
-                          hintText: "Add note here...",
-                          labelText: "Note",
-                          filled: true,
-                          fillColor: Colors.grey.shade100,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-
-                      SizedBox(height: 20),
-
-                      GestureDetector(
-                        onTap: () async {
-                          tx['note'] = noteController.text.trim();
-                          tx['mode'] = selectedMode;
-
-                          if (tx['id'] != null && userId != null) {
-                            await FirebaseFirestore.instance
-                                .collection('users')
-                                .doc(userId)
-                                .collection('transactions')
-                                .doc(tx['id'])
-                                .update({
-                                  'note': tx['note'],
-                                  'mode': tx['mode'],
-                                });
-                          }
-
-                          await saveData();
-                          setState(() {});
-
-                          Navigator.pop(context);
-
-                          showPremiumSnackBar(
-                            message: "Changes saved successfully",
-                            icon: Icons.note_alt_rounded,
-                          );
-                        },
-                        child: Container(
-                          width: double.infinity,
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: Color(0xFF2C2C54),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Center(
+                          Expanded(
                             child: Text(
-                              "Save Changes",
+                              'Edit Transaction',
                               style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
+                                fontSize: 19,
+                                fontWeight: FontWeight.w900,
+                                color: textColor,
                               ),
                             ),
                           ),
+                          InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () => Navigator.pop(context),
+                            child: Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: fieldColor,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(Icons.close_rounded, color: hintColor, size: 20),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+
+                      Text('Amount', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: hintColor)),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: amountController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.w800),
+                        decoration: InputDecoration(
+                          prefixText: '₹ ',
+                          prefixStyle: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.w800),
+                          hintText: 'Enter amount',
+                          hintStyle: TextStyle(color: hintColor),
+                          filled: true,
+                          fillColor: fieldColor,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                         ),
                       ),
+                      const SizedBox(height: 14),
 
-                      SizedBox(height: 10),
-
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context),
-                        child: Text(
-                          "Close",
-                          style: TextStyle(
-                            color: Colors.grey.shade700,
-                            fontWeight: FontWeight.w600,
+                      Text('Category', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: hintColor)),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () => openPremiumCategorySheet(dialogSetState),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                          decoration: BoxDecoration(
+                            color: fieldColor,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 34,
+                                height: 34,
+                                decoration: BoxDecoration(
+                                  color: (categoryColors[selectedCategory] ?? Colors.teal).withOpacity(0.16),
+                                  borderRadius: BorderRadius.circular(11),
+                                ),
+                                child: Icon(
+                                  Icons.label_rounded,
+                                  color: categoryColors[selectedCategory] ?? Colors.teal,
+                                  size: 19,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  selectedCategory,
+                                  style: TextStyle(
+                                    color: textColor,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              Icon(Icons.keyboard_arrow_down_rounded, color: hintColor),
+                            ],
                           ),
                         ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      Text('Payment Mode', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: hintColor)),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          _modeChip(
+                            title: 'Cash',
+                            selected: selectedMode == 'Cash',
+                            onTap: () => dialogSetState(() => selectedMode = 'Cash'),
+                          ),
+                          const SizedBox(width: 8),
+                          _modeChip(
+                            title: 'UPI',
+                            selected: selectedMode == 'UPI',
+                            onTap: () => dialogSetState(() => selectedMode = 'UPI'),
+                          ),
+                          const SizedBox(width: 8),
+                          _modeChip(
+                            title: 'Card',
+                            selected: selectedMode == 'Card',
+                            onTap: () => dialogSetState(() => selectedMode = 'Card'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      Text('Note', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: hintColor)),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: noteController,
+                        maxLines: 3,
+                        style: TextStyle(color: textColor),
+                        decoration: InputDecoration(
+                          hintText: 'Add a small note...',
+                          hintStyle: TextStyle(color: hintColor),
+                          filled: true,
+                          fillColor: fieldColor,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () => Navigator.pop(context),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                decoration: BoxDecoration(
+                                  color: fieldColor,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    'Cancel',
+                                    style: TextStyle(
+                                      color: hintColor,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            flex: 2,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () async {
+                                final double? amount = double.tryParse(amountController.text.trim());
+                                if (amount == null || amount <= 0) {
+                                  showPremiumSnackBar(
+                                    message: 'Please enter a valid amount',
+                                    icon: Icons.error_outline_rounded,
+                                  );
+                                  return;
+                                }
+
+                                setState(() {
+                                  tx['amount'] = amount;
+                                  tx['category'] = selectedCategory;
+                                  tx['mode'] = selectedMode;
+                                  tx['note'] = noteController.text.trim();
+                                  categoryColors.putIfAbsent(selectedCategory, () => Colors.teal);
+                                });
+
+                                if (tx['id'] != null && userId != null) {
+                                  await FirebaseFirestore.instance
+                                      .collection('users')
+                                      .doc(userId)
+                                      .collection('transactions')
+                                      .doc(tx['id'].toString())
+                                      .update({
+                                        'amount': amount,
+                                        'category': selectedCategory,
+                                        'mode': selectedMode,
+                                        'note': noteController.text.trim(),
+                                      });
+                                }
+
+                                await saveData();
+                                if (context.mounted) Navigator.pop(context);
+
+                                showPremiumSnackBar(
+                                  message: 'Transaction updated successfully',
+                                  icon: Icons.check_circle_rounded,
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF2C2C54).withOpacity(0.28),
+                                      blurRadius: 16,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ],
+                                ),
+                                child: const Center(
+                                  child: Text(
+                                    'Save Changes',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -4407,9 +4812,11 @@ class _MainScreenState extends State<MainScreen> {
             );
           },
         );
-      }
+      },
     );
   }
+
+
   void openCategoryTransactionsDialog(String category, List<Map<String, dynamic>> reportList) {
     final categoryTransactions =
         reportList.where((tx) => tx['category'] == category).toList();
@@ -4417,6 +4824,14 @@ class _MainScreenState extends State<MainScreen> {
     categoryTransactions.sort(
       (a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime),
     );
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? Colors.greenAccent : const Color(0xFF4B3F8F);
+    final dialogBg = isDark ? const Color(0xFF1B1B22) : Colors.white;
+    final cardBg = isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade100;
+    final titleColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.white60 : Colors.black54;
+    final softTextColor = isDark ? Colors.white38 : Colors.black45;
 
     final totalCategoryAmount = categoryTransactions.fold(
       0.0,
@@ -4436,7 +4851,7 @@ class _MainScreenState extends State<MainScreen> {
             ),
             padding: EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: dialogBg,
               borderRadius: BorderRadius.circular(20),
             ),
             child: Column(
@@ -4447,7 +4862,7 @@ class _MainScreenState extends State<MainScreen> {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                    color: titleColor,
                   ),
                 ),
                 SizedBox(height: 8),
@@ -4458,7 +4873,7 @@ class _MainScreenState extends State<MainScreen> {
                           ? "Selected week transactions"
                           : "Selected day transactions",
                   style: TextStyle(
-                    color: Colors.black54,
+                    color: subTextColor,
                     fontSize: 13,
                   ),
                 ),
@@ -4467,7 +4882,7 @@ class _MainScreenState extends State<MainScreen> {
                   width: double.infinity,
                   padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
+                    color: cardBg,
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Column(
@@ -4476,7 +4891,7 @@ class _MainScreenState extends State<MainScreen> {
                       Text(
                         "Total",
                         style: TextStyle(
-                          color: Colors.black54,
+                          color: subTextColor,
                           fontSize: 12,
                         ),
                       ),
@@ -4484,7 +4899,7 @@ class _MainScreenState extends State<MainScreen> {
                       Text(
                         "₹ ${totalCategoryAmount.toStringAsFixed(0)}",
                         style: TextStyle(
-                          color: Color(0xFF2C2C54),
+                          color: primaryColor,
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
                         ),
@@ -4493,7 +4908,7 @@ class _MainScreenState extends State<MainScreen> {
                       Text(
                         "${categoryTransactions.length} transaction${categoryTransactions.length == 1 ? '' : 's'}",
                         style: TextStyle(
-                          color: Colors.black54,
+                          color: subTextColor,
                           fontSize: 12,
                         ),
                       ),
@@ -4506,7 +4921,7 @@ class _MainScreenState extends State<MainScreen> {
                       ? Center(
                           child: Text(
                             "No transactions found",
-                            style: TextStyle(color: Colors.black54),
+                            style: TextStyle(color: subTextColor),
                           ),
                         )
                       : ListView.separated(
@@ -4519,7 +4934,7 @@ class _MainScreenState extends State<MainScreen> {
                             return Container(
                               padding: EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
+                                color: cardBg,
                                 borderRadius: BorderRadius.circular(14),
                               ),
                               child: Row(
@@ -4528,12 +4943,12 @@ class _MainScreenState extends State<MainScreen> {
                                     width: 38,
                                     height: 38,
                                     decoration: BoxDecoration(
-                                      color: Color(0xFF2C2C54).withOpacity(0.12),
+                                      color: primaryColor.withOpacity(isDark ? 0.18 : 0.12),
                                       shape: BoxShape.circle,
                                     ),
                                     child: Icon(
                                       Icons.receipt_long_rounded,
-                                      color: Color(0xFF2C2C54),
+                                      color: primaryColor,
                                       size: 20,
                                     ),
                                   ),
@@ -4545,7 +4960,7 @@ class _MainScreenState extends State<MainScreen> {
                                         Text(
                                           tx['category'],
                                           style: TextStyle(
-                                            color: Colors.black87,
+                                            color: titleColor,
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
@@ -4553,7 +4968,7 @@ class _MainScreenState extends State<MainScreen> {
                                         Text(
                                           "${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year} • ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}",
                                           style: TextStyle(
-                                            color: Colors.black54,
+                                            color: subTextColor,
                                             fontSize: 12,
                                           ),
                                         ),
@@ -4561,7 +4976,7 @@ class _MainScreenState extends State<MainScreen> {
                                         Text(
                                           tx['mode'] ?? "Cash",
                                           style: TextStyle(
-                                            color: Colors.black45,
+                                            color: softTextColor,
                                             fontSize: 11,
                                           ),
                                         ),
@@ -4573,7 +4988,7 @@ class _MainScreenState extends State<MainScreen> {
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
                                               fontSize: 11,
-                                              color: Colors.grey.shade700,
+                                              color: isDark ? Colors.white54 : Colors.grey.shade700,
                                               fontWeight: FontWeight.w500,
                                             ),
                                           ),
@@ -4585,7 +5000,7 @@ class _MainScreenState extends State<MainScreen> {
                                   Text(
                                     "₹ ${(tx['amount'] as double).toStringAsFixed(0)}",
                                     style: TextStyle(
-                                      color: Color(0xFF2C2C54),
+                                      color: primaryColor,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 15,
                                     ),
@@ -5480,98 +5895,197 @@ class _MainScreenState extends State<MainScreen> {
   void openFilterSheet() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: widget.isDark ? Color(0xFF1E1E1E) : Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (_) {
         return StatefulBuilder(
           builder: (context, sheetSetState) {
-            return Padding(
-              padding: EdgeInsets.all(18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Filter Transactions",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+            final bool dark = widget.isDark;
+            final Color sheetColor = dark ? const Color(0xFF1E1E1E) : Colors.white;
+            final Color titleColor = dark ? Colors.white : const Color(0xFF171727);
+            final Color subColor = dark ? Colors.white70 : const Color(0xFF171727).withOpacity(0.70);
+            final Color chipTextColor = dark ? Colors.white : const Color(0xFF171727);
+
+            Widget premiumChip({
+              required String label,
+              required bool selected,
+              required VoidCallback onTap,
+            }) {
+              return ChoiceChip(
+                label: Text(
+                  label,
+                  style: TextStyle(
+                    color: selected ? Colors.white : chipTextColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                selected: selected,
+                onSelected: (_) => onTap(),
+                selectedColor: const Color(0xFF4B3F8F),
+                backgroundColor: dark ? const Color(0xFF111111) : const Color(0xFFF4F1FA),
+                side: BorderSide(
+                  color: selected
+                      ? const Color(0xFF4B3F8F)
+                      : (dark ? Colors.white24 : const Color(0xFF2C2C54).withOpacity(0.18)),
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              );
+            }
+
+            return SafeArea(
+              top: false,
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.72,
+                ),
+                decoration: BoxDecoration(
+                  color: sheetColor,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.25),
+                      blurRadius: 22,
+                      offset: const Offset(0, -8),
                     ),
-                  ),
-
-                  SizedBox(height: 18),
-
-                  Text("Payment Mode"),
-                  SizedBox(height: 8),
-
-                  Wrap(
-                    spacing: 8,
-                    children: ["All", "Cash", "UPI", "Card"].map((mode) {
-                      return ChoiceChip(
-                        label: Text(mode),
-                        selected: selectedModeFilter == mode,
-                        onSelected: (_) {
-                          sheetSetState(() {
-                            selectedModeFilter = mode;
-                          });
-                          setState(() {});
-                        },
-                      );
-                    }).toList(),
-                  ),
-
-                  SizedBox(height: 18),
-
-                  Text("Category"),
-                  SizedBox(height: 8),
-
-                  Wrap(
-                    spacing: 8,
-                    children: ["All", ...categories].map((cat) {
-                      return ChoiceChip(
-                        label: Text(cat),
-                        selected: selectedCategoryFilter == cat,
-                        onSelected: (_) {
-                          sheetSetState(() {
-                            selectedCategoryFilter = cat;
-                          });
-                          setState(() {});
-                        },
-                      );
-                    }).toList(),
-                  ),
-
-                  SizedBox(height: 20),
-
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        selectedModeFilter = "All";
-                        selectedCategoryFilter = "All";
-                      });
-                      Navigator.pop(context);
-                    },
-                    child: Container(
-                      width: double.infinity,
-                      padding: EdgeInsets.symmetric(vertical: 13),
-                      decoration: BoxDecoration(
-                        color: Color(0xFF2C2C54),
-                        borderRadius: BorderRadius.circular(14),
+                  ],
+                ),
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "Filter Transactions",
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: titleColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  "Find expenses faster",
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: subColor.withOpacity(0.72),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: Icon(Icons.close_rounded, color: subColor),
+                          ),
+                        ],
                       ),
-                      child: Center(
-                        child: Text(
-                          "Clear Filter",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
+
+                      const SizedBox(height: 16),
+
+                      Text(
+                        "Payment Mode",
+                        style: TextStyle(
+                          color: subColor,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: ["All", "Cash", "UPI", "Card"].map((mode) {
+                          return premiumChip(
+                            label: mode,
+                            selected: selectedModeFilter == mode,
+                            onTap: () {
+                              sheetSetState(() => selectedModeFilter = mode);
+                              setState(() {});
+                            },
+                          );
+                        }).toList(),
+                      ),
+
+                      const SizedBox(height: 18),
+
+                      Text(
+                        "Category",
+                        style: TextStyle(
+                          color: subColor,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: ["All", ...categories].map((cat) {
+                          return premiumChip(
+                            label: cat,
+                            selected: selectedCategoryFilter == cat,
+                            onTap: () {
+                              sheetSetState(() => selectedCategoryFilter = cat);
+                              setState(() {});
+                            },
+                          );
+                        }).toList(),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            selectedModeFilter = "All";
+                            selectedCategoryFilter = "All";
+                          });
+                          Navigator.pop(context);
+                        },
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF2C2C54), Color(0xFF4B3F8F)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF2C2C54).withOpacity(0.24),
+                                blurRadius: 14,
+                                offset: const Offset(0, 7),
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Text(
+                              "Clear Filter",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             );
           },
@@ -5776,18 +6290,119 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void openLimitDialog(BuildContext context) {
-    TextEditingController controller = TextEditingController(
+    String selectedLimitMode = "This Month";
+    final bool isMonthlyDialog = viewMode == "Monthly";
+
+    final controller = TextEditingController(
       text: viewMode == "Daily"
           ? (dailyLimit == 0 ? "" : dailyLimit.toStringAsFixed(0))
-          : (monthlyLimit == 0 ? "" : monthlyLimit.toStringAsFixed(0)),
+          : (getMonthlyLimitForSelectedMonth() == 0
+              ? ""
+              : getMonthlyLimitForSelectedMonth().toStringAsFixed(0)),
     );
+
+    void refreshControllerForMode(String mode) {
+      final value = mode == "All Months"
+          ? monthlyLimit
+          : (monthlyLimitsByMonth[selectedMonth] ?? monthlyLimit);
+      controller.text = value == 0 ? "" : value.toStringAsFixed(0);
+      controller.selection = TextSelection.fromPosition(
+        TextPosition(offset: controller.text.length),
+      );
+    }
+
+    Widget buildLimitModeChip({
+      required String title,
+      required String subtitle,
+      required IconData icon,
+      required bool selected,
+      required VoidCallback onTap,
+    }) {
+      return Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            decoration: BoxDecoration(
+              gradient: selected
+                  ? const LinearGradient(
+                      colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                    )
+                  : null,
+              color: selected ? null : const Color(0xFFF4F3FA),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: selected ? Colors.transparent : const Color(0xFFE4E1EF),
+              ),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFF2C2C54).withOpacity(0.22),
+                        blurRadius: 14,
+                        offset: const Offset(0, 7),
+                      ),
+                    ]
+                  : [],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: selected ? Colors.white.withOpacity(0.16) : Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 16,
+                    color: selected ? Colors.white : const Color(0xFF2C2C54),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: selected ? Colors.white : const Color(0xFF1F1F35),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: selected ? Colors.white.withOpacity(0.72) : Colors.black45,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.72),
       barrierLabel: "Limit Dialog",
-      barrierColor: Colors.black54,
-      transitionDuration: Duration(milliseconds: 300),
+      transitionDuration: const Duration(milliseconds: 300),
       pageBuilder: (context, animation, secondaryAnimation) {
         return Center(
           child: StatefulBuilder(
@@ -5796,25 +6411,22 @@ class _MainScreenState extends State<MainScreen> {
                 color: Colors.transparent,
                 child: TweenAnimationBuilder(
                   tween: Tween<double>(begin: 0.92, end: 1.0),
-                  duration: Duration(milliseconds: 280),
+                  duration: const Duration(milliseconds: 280),
                   curve: Curves.easeOutBack,
                   builder: (context, scale, child) {
-                    return Transform.scale(
-                      scale: scale,
-                      child: child,
-                    );
+                    return Transform.scale(scale: scale, child: child);
                   },
                   child: Container(
-                    margin: EdgeInsets.symmetric(horizontal: 24),
-                    padding: EdgeInsets.all(20),
+                    margin: const EdgeInsets.symmetric(horizontal: 24),
+                    padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(26),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.18),
-                          blurRadius: 20,
-                          offset: Offset(0, 10),
+                          color: Colors.black.withOpacity(0.20),
+                          blurRadius: 24,
+                          offset: const Offset(0, 12),
                         ),
                       ],
                     ),
@@ -5822,142 +6434,197 @@ class _MainScreenState extends State<MainScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Container(
-                          width: 46,
-                          height: 46,
+                          width: 48,
+                          height: 48,
                           decoration: BoxDecoration(
-                            color: Color(0xFF2C2C54).withOpacity(0.10),
+                            color: const Color(0xFF2C2C54).withOpacity(0.10),
                             shape: BoxShape.circle,
                           ),
-                          child: Icon(
+                          child: const Icon(
                             Icons.track_changes_rounded,
                             color: Color(0xFF2C2C54),
                           ),
                         ),
-                        SizedBox(height: 14),
+                        const SizedBox(height: 14),
                         Text(
                           viewMode == "Daily" ? "Set Daily Limit" : "Set Monthly Limit",
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: Colors.black87,
                             fontSize: 20,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                        SizedBox(height: 6),
+                        const SizedBox(height: 6),
                         Text(
                           viewMode == "Daily"
                               ? "Add your daily spending limit"
-                              : "Add your monthly spending limit",
-                          style: TextStyle(
+                              : "Choose one budget for every month or only this month",
+                          style: const TextStyle(
                             color: Colors.black54,
                             fontSize: 13,
                           ),
                           textAlign: TextAlign.center,
                         ),
-                        SizedBox(height: 18),
+                        if (isMonthlyDialog) ...[
+                          const SizedBox(height: 18),
+                          Row(
+                            children: [
+                              buildLimitModeChip(
+                                title: "All Months",
+                                subtitle: "Default limit",
+                                icon: Icons.all_inclusive_rounded,
+                                selected: selectedLimitMode == "All Months",
+                                onTap: () {
+                                  setStateDialog(() {
+                                    selectedLimitMode = "All Months";
+                                    refreshControllerForMode(selectedLimitMode);
+                                  });
+                                },
+                              ),
+                              const SizedBox(width: 10),
+                              buildLimitModeChip(
+                                title: "This Month",
+                                subtitle: "Only selected",
+                                icon: Icons.calendar_month_rounded,
+                                selected: selectedLimitMode == "This Month",
+                                onTap: () {
+                                  setStateDialog(() {
+                                    selectedLimitMode = "This Month";
+                                    refreshControllerForMode(selectedLimitMode);
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 18),
                         TextField(
                           controller: controller,
                           keyboardType: TextInputType.number,
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: Colors.black87,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                           ),
                           decoration: InputDecoration(
-                            prefixText: "₹ ",
-                            prefixStyle: TextStyle(
+                            prefixText: "₹  ",
+                            prefixStyle: const TextStyle(
                               color: Color(0xFF2C2C54),
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w800,
                             ),
                             hintText: "Enter limit amount",
-                            hintStyle: TextStyle(color: Colors.black38),
+                            hintStyle: const TextStyle(color: Colors.black38),
                             filled: true,
-                            fillColor: Colors.grey.shade100,
-                            contentPadding: EdgeInsets.symmetric(
+                            fillColor: const Color(0xFFF5F3FA),
+                            contentPadding: const EdgeInsets.symmetric(
                               horizontal: 16,
-                              vertical: 14,
+                              vertical: 15,
                             ),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: BorderSide.none,
                             ),
                             enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: BorderSide.none,
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
+                              borderRadius: BorderRadius.circular(16),
+                              borderSide: const BorderSide(
                                 color: Color(0xFF40407A),
                                 width: 1.4,
                               ),
                             ),
                           ),
                         ),
-                        SizedBox(height: 20),
+                        if (isMonthlyDialog) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.info_outline_rounded,
+                                size: 14,
+                                color: Colors.black38,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  selectedLimitMode == "All Months"
+                                      ? "This will become the default limit for every month."
+                                      : "This limit will apply only to the selected month.",
+                                  style: const TextStyle(
+                                    color: Colors.black45,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 20),
                         Row(
                           children: [
                             Expanded(
                               child: GestureDetector(
                                 onTap: () => Navigator.pop(context),
                                 child: Container(
-                                  padding: EdgeInsets.symmetric(vertical: 13),
+                                  padding: const EdgeInsets.symmetric(vertical: 13),
                                   decoration: BoxDecoration(
                                     color: Colors.grey.shade200,
                                     borderRadius: BorderRadius.circular(14),
                                   ),
-                                  child: Center(
+                                  child: const Center(
                                     child: Text(
                                       "Cancel",
                                       style: TextStyle(
                                         color: Colors.black87,
-                                        fontWeight: FontWeight.w600,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                            SizedBox(width: 10),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: GestureDetector(
-                                onTap: () {
-                                  double value = double.tryParse(controller.text.trim()) ?? 0;
+                                onTap: () async {
+                                  final value = double.tryParse(controller.text.trim()) ?? 0;
 
                                   setState(() {
                                     if (viewMode == "Daily") {
                                       dailyLimit = value;
-                                    } else {
+                                    } else if (selectedLimitMode == "All Months") {
                                       monthlyLimit = value;
+                                    } else {
+                                      monthlyLimitsByMonth[selectedMonth] = value;
                                     }
                                   });
 
-                                  saveData();
-                                  Navigator.pop(context);
+                                  await saveData();
+                                  if (context.mounted) Navigator.pop(context);
                                 },
-                                child: TweenAnimationBuilder(
-                                  tween: Tween<double>(begin: 0.96, end: 1.0),
-                                  duration: Duration(milliseconds: 250),
-                                  curve: Curves.easeOutBack,
-                                  builder: (context, scale, child) {
-                                    return Transform.scale(
-                                      scale: scale,
-                                      child: child,
-                                    );
-                                  },
-                                  child: Container(
-                                    padding: EdgeInsets.symmetric(vertical: 13),
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
-                                      ),
-                                      borderRadius: BorderRadius.circular(14),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 13),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
                                     ),
-                                    child: Center(
-                                      child: Text(
-                                        "Save",
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w700,
-                                        ),
+                                    borderRadius: BorderRadius.circular(14),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF2C2C54).withOpacity(0.28),
+                                        blurRadius: 16,
+                                        offset: const Offset(0, 7),
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Center(
+                                    child: Text(
+                                      "Save",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
                                       ),
                                     ),
                                   ),
@@ -5976,15 +6643,8 @@ class _MainScreenState extends State<MainScreen> {
         );
       },
       transitionBuilder: (context, animation, secondaryAnimation, child) {
-        final curved = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-        );
-
-        return FadeTransition(
-          opacity: curved,
-          child: child,
-        );
+        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+        return FadeTransition(opacity: curved, child: child);
       },
     );
   }
