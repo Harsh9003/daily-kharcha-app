@@ -75,6 +75,9 @@ class NotificationService {
           visibility: NotificationVisibility.public,
           playSound: true,
           enableVibration: true,
+          fullScreenIntent: true,
+          ticker: 'Daily Kharcha Alert',
+          autoCancel: true,
           icon: '@mipmap/ic_launcher',
         ),
         iOS: DarwinNotificationDetails(

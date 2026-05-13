@@ -20,6 +20,8 @@ import 'services/streak_service.dart';
 import 'widgets/streak_floating_card.dart';
 import 'admin/admin_gate.dart';
 import 'web/web_dashboard_page.dart';
+import 'udhar/pages/udhar_book_page.dart';
+import 'utils/app_colors.dart';
 
 GoogleSignIn buildGoogleSignIn() {
   return GoogleSignIn(
@@ -306,8 +308,8 @@ class _LoginScreenState extends State<LoginScreen>
                           shape: BoxShape.circle,
                           gradient: const LinearGradient(
                             colors: [
-                              Color(0xFF40407A),
-                              Color(0xFF2C2C54),
+                              AppColors.headerStart,
+                              AppColors.headerEnd,
                             ],
                           ),
                           boxShadow: [
@@ -824,7 +826,7 @@ class _MainScreenState extends State<MainScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: Colors.transparent,
+        backgroundColor: AppColors.darkBg,
         elevation: 0,
         duration: const Duration(seconds: 2),
         margin: const EdgeInsets.only(
@@ -837,8 +839,8 @@ class _MainScreenState extends State<MainScreen> {
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               colors: [
-                Color(0xFF1E1E2C),
-                Color(0xFF2C2C54),
+                 AppColors.headerStart,
+                AppColors.headerEnd,
               ],
             ),
             borderRadius: BorderRadius.circular(18),
@@ -1054,7 +1056,8 @@ class _MainScreenState extends State<MainScreen> {
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               decoration: BoxDecoration(
                                 gradient: const LinearGradient(
-                                  colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                                  colors: [ AppColors.headerStart,
+                                  AppColors.headerEnd,],
                                 ),
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -1317,8 +1320,8 @@ class _MainScreenState extends State<MainScreen> {
                   borderRadius: BorderRadius.circular(24),
                   gradient: const LinearGradient(
                     colors: [
-                      Color(0xFF2C2C54),
-                      Color(0xFF40407A),
+                       AppColors.headerStart,
+                       AppColors.headerEnd,
                     ],
                   ),
                 ),
@@ -2174,13 +2177,15 @@ class _MainScreenState extends State<MainScreen> {
         child: currentIndex == 0
             ? buildHome()
             : currentIndex == 1
-                ? buildReport()
-                : buildProfile(),
+                ? UdharBookPage(isDark: widget.isDark)
+                : currentIndex == 2
+                    ? buildReport()
+                    : buildProfile(),
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: currentIndex,
         type: BottomNavigationBarType.fixed,
-        backgroundColor: Color(0xFF1E1E2C),
+        backgroundColor: AppColors.bottomBar,
         selectedItemColor: Colors.greenAccent,
         unselectedItemColor: Colors.white70,
         showUnselectedLabels: true,
@@ -2194,6 +2199,7 @@ class _MainScreenState extends State<MainScreen> {
         },
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
+          BottomNavigationBarItem(icon: Icon(Icons.menu_book_rounded), label: "Udhar Book"),
           BottomNavigationBarItem(icon: Icon(Icons.pie_chart), label: "Reports"),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: "Profile"),
         ],
@@ -2243,7 +2249,9 @@ class _MainScreenState extends State<MainScreen> {
           FocusScope.of(context).unfocus();
         }
       },
-      child: Column(
+      child: Container(
+        color: widget.isDark ? AppColors.darkBg : const Color(0xFFF6F7FB),
+        child: Column(
         children: [
           Container(
             padding: EdgeInsets.all(16),
@@ -2252,8 +2260,8 @@ class _MainScreenState extends State<MainScreen> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Color(0xFF1E1E2C),
-                  Color(0xFF2C2C54),
+                  AppColors.headerStart,
+                  AppColors.headerEnd,
                 ],
               ),
             ),
@@ -2305,9 +2313,7 @@ class _MainScreenState extends State<MainScreen> {
                           color: Colors.white.withOpacity(0.13),
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        // FIX: Row overflow aa raha tha animation ke time.
-                        // Jab width 44 se 170 hoti hai, Row ke andar TextField jaldi add ho jata tha.
-                        // Stack + ClipRect se content available width ke andar hi clipped rahega.
+                        
                         clipBehavior: Clip.hardEdge,
                         child: Stack(
                           alignment: Alignment.centerLeft,
@@ -2592,11 +2598,11 @@ class _MainScreenState extends State<MainScreen> {
                   ? ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.only(bottom: 190, top: 90),
-                      children: const [
+                      children: [
                         Center(
                           child: Text(
                             "No transactions found",
-                            style: TextStyle(color: Colors.white54),
+                            style: TextStyle(color: widget.isDark ? Colors.white54 : Colors.black45),
                           ),
                         ),
                       ],
@@ -2691,6 +2697,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ],
       ),
+      ),
     );
   }
 
@@ -2714,7 +2721,9 @@ class _MainScreenState extends State<MainScreen> {
       categoryTotal[cat] = (categoryTotal[cat] ?? 0) + amt;
     }
 
-    return Column(
+    return Container(
+      color: isDark ? AppColors.darkBg : const Color(0xFFF6F7FB),
+      child: Column(
       children: [
         Container(
           width: double.infinity,
@@ -2723,7 +2732,10 @@ class _MainScreenState extends State<MainScreen> {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFF1E1E2C), Color(0xFF2C2C54)],
+              colors: [
+                AppColors.headerStart,
+                AppColors.headerEnd,
+              ],
             ),
           ),
           child: SafeArea(
@@ -2791,7 +2803,7 @@ class _MainScreenState extends State<MainScreen> {
                   "Total: ₹ ${totalAmount.toStringAsFixed(0)}",
                   style: TextStyle(
                     fontSize: 18,
-                    color: isDark ? Colors.greenAccent : const Color.fromARGB(255, 235, 235, 238),
+                    color: isDark ? Colors.greenAccent : Colors.white,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -3298,6 +3310,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ),
       ],
+    ),
     );
   }
 
@@ -3310,7 +3323,9 @@ class _MainScreenState extends State<MainScreen> {
     );
     final int totalTransactions = transactions.length;
 
-    return SingleChildScrollView(
+    return Container(
+      color: isDark ? AppColors.darkBg : const Color(0xFFF6F7FB),
+      child: SingleChildScrollView(
       padding: EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3320,7 +3335,10 @@ class _MainScreenState extends State<MainScreen> {
             padding: EdgeInsets.all(20),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFF1E1E2C), Color(0xFF2C2C54)],
+                colors: [
+                  AppColors.headerStart,
+                  AppColors.headerEnd,
+                ],
               ),
               borderRadius: BorderRadius.circular(20),
             ),
@@ -3414,8 +3432,8 @@ class _MainScreenState extends State<MainScreen> {
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Color(0xFF2C2C54),
-                    Color(0xFF40407A),
+                    AppColors.headerStart,
+                    AppColors.headerEnd,
                   ],
                 ),
                 borderRadius: BorderRadius.circular(12),
@@ -3435,7 +3453,7 @@ class _MainScreenState extends State<MainScreen> {
           SizedBox(height: 18),
           Text(
             "Settings",
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF171727)),
           ),
           SizedBox(height: 10),
           _profileTile(
@@ -3476,7 +3494,7 @@ class _MainScreenState extends State<MainScreen> {
           SizedBox(height: 18),
           Text(
             "Data",
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF171727)),
           ),
           SizedBox(height: 10),
           _profileTile(
@@ -3522,7 +3540,7 @@ class _MainScreenState extends State<MainScreen> {
           SizedBox(height: 18),
           Text(
             "About",
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF171727)),
           ),
           SizedBox(height: 10),
           _profileTile(
@@ -3543,6 +3561,7 @@ class _MainScreenState extends State<MainScreen> {
             value: "1.2.0",
           ),
         ],
+      ),
       ),
     );
   }
@@ -4295,11 +4314,6 @@ class _MainScreenState extends State<MainScreen> {
 
     return GestureDetector(
       onTap: () {
-        setState(() {
-          currentIndex = 2;
-          savedCurrentIndex = 2;
-        });
-
         widget.onThemeToggle();
       },
       child: AnimatedContainer(
@@ -4310,7 +4324,7 @@ class _MainScreenState extends State<MainScreen> {
           borderRadius: BorderRadius.circular(18),
           gradient: LinearGradient(
             colors: isDark
-                ? [Color(0xFF2C2C54), Color(0xFF40407A)]
+                ? [AppColors.headerStart,AppColors.headerEnd,]
                 : [Colors.white, Colors.grey.shade100],
           ),
         ),
@@ -4416,7 +4430,8 @@ class _MainScreenState extends State<MainScreen> {
                         height: 42,
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
-                            colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                            colors: [ AppColors.headerStart,
+                              AppColors.headerEnd,],
                           ),
                           borderRadius: BorderRadius.circular(14),
                         ),
@@ -4780,7 +4795,8 @@ class _MainScreenState extends State<MainScreen> {
                                 padding: const EdgeInsets.symmetric(vertical: 14),
                                 decoration: BoxDecoration(
                                   gradient: const LinearGradient(
-                                    colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                                    colors: [ AppColors.headerStart,
+                                    AppColors.headerEnd,],
                                   ),
                                   borderRadius: BorderRadius.circular(16),
                                   boxShadow: [
@@ -5625,7 +5641,8 @@ class _MainScreenState extends State<MainScreen> {
                       height: 42,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF2C2C54), Color(0xFF40407A)],
+                          colors: [ AppColors.headerStart,
+                          AppColors.headerEnd,],
                         ),
                         borderRadius: BorderRadius.circular(14),
                       ),
@@ -6061,7 +6078,8 @@ class _MainScreenState extends State<MainScreen> {
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
-                              colors: [Color(0xFF2C2C54), Color(0xFF4B3F8F)],
+                              colors: [ AppColors.headerStart,
+                              AppColors.headerEnd,],
                             ),
                             borderRadius: BorderRadius.circular(16),
                             boxShadow: [
