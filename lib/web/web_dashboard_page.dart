@@ -140,6 +140,8 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
                       onSearchChanged: _onSearchTyping,
                       onThemeToggle: widget.onThemeToggle,
                       onAddExpense: () => _openAddExpenseDialog(categories),
+                      onSetLimit: _openLimitDialog,
+                      onLogout: _logoutUser,
                       notificationButton: _adminNotificationBell(),
                     ),
                     Expanded(
@@ -239,6 +241,8 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
           totalExpense: totalExpense,
           topCategories: topCategories,
           onTransactionTap: _openTransactionDetails,
+          onSetLimit: _openLimitDialog,
+          userId: FirebaseAuth.instance.currentUser?.uid ?? '',
         );
     }
   }
@@ -444,10 +448,188 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
     );
   }
 
+  Future<void> _openLimitDialog() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final data = doc.data() ?? <String, dynamic>{};
+    final monthlyController = TextEditingController(text: ((data['monthlyLimit'] as num?)?.toDouble() ?? 0) > 0 ? ((data['monthlyLimit'] as num).toDouble()).toStringAsFixed(0) : '');
+    final dailyController = TextEditingController(text: ((data['dailyLimit'] as num?)?.toDouble() ?? 0) > 0 ? ((data['dailyLimit'] as num).toDouble()).toStringAsFixed(0) : '');
+
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Container(
+            width: 500,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF151B2E) : Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: isDark ? Colors.white12 : Colors.black.withOpacity(.06)),
+              boxShadow: [BoxShadow(color: const Color(0xFF6C3BFF).withOpacity(.24), blurRadius: 38, offset: const Offset(0, 18))],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      height: 52,
+                      width: 52,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [Color(0xFF22C55E), Color(0xFF14B8A6)]),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: const Icon(Icons.savings_rounded, color: Colors.white),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(child: Text('Set Expense Limit', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900))),
+                    IconButton(onPressed: () => Navigator.pop(dialogContext), icon: const Icon(Icons.close_rounded)),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _PremiumField(
+                  child: TextField(
+                    controller: monthlyController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Monthly Limit', prefixText: '₹ ', border: InputBorder.none),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _PremiumField(
+                  child: TextField(
+                    controller: dailyController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Daily Limit', prefixText: '₹ ', border: InputBorder.none),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          final monthly = double.tryParse(monthlyController.text.trim()) ?? 0;
+                          final daily = double.tryParse(dailyController.text.trim()) ?? 0;
+                          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+                            'monthlyLimit': monthly,
+                            'dailyLimit': daily,
+                            'limitUpdatedAt': FieldValue.serverTimestamp(),
+                          }, SetOptions(merge: true));
+
+                          if (dialogContext.mounted) Navigator.pop(dialogContext);
+                          if (!mounted) return;
+                          _showPremiumToast(
+                            title: 'Limit updated',
+                            message: 'Daily aur monthly expense limit save ho gayi hai.',
+                            icon: Icons.check_circle_rounded,
+                          );
+                        },
+                        icon: const Icon(Icons.check_rounded),
+                        label: const Text('Save Limit'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          backgroundColor: const Color(0xFF6C3BFF),
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    monthlyController.dispose();
+    dailyController.dispose();
+  }
+
+  Future<void> _logoutUser() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black.withOpacity(.72),
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Container(
+          width: 430,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF151827),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: Colors.white.withOpacity(.10)),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(.45), blurRadius: 40, offset: const Offset(0, 22))],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    height: 50,
+                    width: 50,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFFFF4D57), Color(0xFFFF7A59)]),
+                      borderRadius: BorderRadius.circular(17),
+                    ),
+                    child: const Icon(Icons.logout_rounded, color: Colors.white),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(child: Text('Logout?', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: Colors.white))),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const Text('Aap current account se sign out ho jaoge. Baad me dobara login kar sakte ho.', style: TextStyle(color: Color(0xFFD7D9E4), height: 1.45, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 22),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+                  const SizedBox(width: 10),
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    icon: const Icon(Icons.logout_rounded, size: 18),
+                    label: const Text('Logout'),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF4D57), foregroundColor: Colors.white),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirm == true) {
+      await FirebaseAuth.instance.signOut();
+    }
+  }
+
   Future<void> _openAddExpenseDialog(List<String> categories) async {
     final amountController = TextEditingController();
     final noteController = TextEditingController();
-    String selectedCategory = categories.isNotEmpty ? categories.first : 'Food';
+    final dialogCategories = categories.toSet().toList()..sort();
+    String selectedCategory = dialogCategories.isNotEmpty ? dialogCategories.first : 'Food';
+    if (!dialogCategories.contains(selectedCategory)) dialogCategories.add(selectedCategory);
     String selectedMode = 'Cash';
     DateTime selectedTxDate = DateTime.now();
     final modes = ['Cash', 'UPI', 'Card'];
@@ -527,8 +709,19 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
                             label: 'Category',
                             value: selectedCategory,
                             icon: Icons.category_rounded,
-                            items: categories,
+                            items: dialogCategories,
                             onChanged: (v) => setDialogState(() => selectedCategory = v),
+                            onAddCustom: () async {
+                              final newCategory = await _openCustomCategoryDialog(dialogContext);
+                              if (newCategory == null) return;
+                              setDialogState(() {
+                                if (!dialogCategories.contains(newCategory)) {
+                                  dialogCategories.add(newCategory);
+                                  dialogCategories.sort();
+                                }
+                                selectedCategory = newCategory;
+                              });
+                            },
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -641,6 +834,113 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
     noteController.dispose();
   }
 
+
+  Future<String?> _openCustomCategoryDialog(BuildContext parentContext) async {
+    final controller = TextEditingController();
+
+    final result = await showDialog<String>(
+      context: parentContext,
+      barrierDismissible: true,
+      builder: (customContext) {
+        final isDark = Theme.of(customContext).brightness == Brightness.dark;
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Container(
+            width: 420,
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF151B2E) : Colors.white,
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(color: isDark ? Colors.white12 : Colors.black.withOpacity(0.06)),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF6C3BFF).withOpacity(0.25),
+                  blurRadius: 36,
+                  offset: const Offset(0, 16),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      height: 46,
+                      width: 46,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [Color(0xFF3278FF), Color(0xFF7A3CFF)]),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Icon(Icons.playlist_add_rounded, color: Colors.white),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text('Add Custom Category', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                    ),
+                    IconButton(onPressed: () => Navigator.pop(customContext), icon: const Icon(Icons.close_rounded)),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _PremiumField(
+                  child: TextField(
+                    controller: controller,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Category name',
+                      hintText: 'Example: Bike EMI, Rent, Medicine',
+                      border: InputBorder.none,
+                    ),
+                    onSubmitted: (value) {
+                      final clean = value.trim();
+                      if (clean.isNotEmpty) Navigator.pop(customContext, clean);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(customContext),
+                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 15)),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          final clean = controller.text.trim();
+                          if (clean.isEmpty) return;
+                          Navigator.pop(customContext, clean);
+                        },
+                        icon: const Icon(Icons.check_rounded),
+                        label: const Text('Add'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 15),
+                          backgroundColor: const Color(0xFF6C3BFF),
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    controller.dispose();
+    final clean = result?.trim();
+    if (clean == null || clean.isEmpty) return null;
+    return clean;
+  }
 
   Future<void> _cleanupOldRecycleBinItems(String uid) async {
     if (_recycleCleanupStarted) return;
@@ -801,6 +1101,7 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
     String selectedMode = tx.mode;
     DateTime selectedTxDate = tx.date;
     final categories = _buildCategories([])..add(tx.category);
+    final dialogCategories = categories.toSet().toList()..sort();
     final modes = ['Cash', 'UPI', 'Card'];
     if (!modes.contains(selectedMode)) modes.add(selectedMode);
 
@@ -860,8 +1161,19 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
                             label: 'Category',
                             value: selectedCategory,
                             icon: Icons.category_rounded,
-                            items: categories.toSet().toList()..sort(),
+                            items: dialogCategories,
                             onChanged: (v) => setDialogState(() => selectedCategory = v),
+                            onAddCustom: () async {
+                              final newCategory = await _openCustomCategoryDialog(dialogContext);
+                              if (newCategory == null) return;
+                              setDialogState(() {
+                                if (!dialogCategories.contains(newCategory)) {
+                                  dialogCategories.add(newCategory);
+                                  dialogCategories.sort();
+                                }
+                                selectedCategory = newCategory;
+                              });
+                            },
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -1518,6 +1830,8 @@ class _DashboardPage extends StatelessWidget {
   final double totalExpense;
   final List<MapEntry<String, double>> topCategories;
   final ValueChanged<WebTx> onTransactionTap;
+  final VoidCallback onSetLimit;
+  final String userId;
 
   const _DashboardPage({
     super.key,
@@ -1527,6 +1841,8 @@ class _DashboardPage extends StatelessWidget {
     required this.totalExpense,
     required this.topCategories,
     required this.onTransactionTap,
+    required this.onSetLimit,
+    required this.userId,
   });
 
   @override
@@ -1544,11 +1860,11 @@ class _DashboardPage extends StatelessWidget {
             children: [
               Expanded(child: _SummaryCard(title: 'Filtered Expense', amount: '₹ ${totalExpense.toStringAsFixed(0)}', subtitle: 'Selected period total', icon: Icons.payments_rounded, gradientColors: const [Color(0xFF7C3AED), Color(0xFF4F46E5)])),
               const SizedBox(width: 18),
-              Expanded(child: _SummaryCard(title: 'Transactions', amount: '${filteredTransactions.length}', subtitle: 'Selected period entries', icon: Icons.receipt_long_rounded, gradientColors: const [Color(0xFF2563EB), Color(0xFF38BDF8)])),
+              Expanded(child: _LimitSummaryCard(userId: userId, totalExpense: totalExpense, onSetLimit: onSetLimit)),
+              const SizedBox(width: 18),
+              Expanded(child: _SummaryCard(title: 'Streak', amount: '${_calculateCurrentStreak(allTransactions)} Days', subtitle: 'Keep adding daily expense', icon: Icons.local_fire_department_rounded, gradientColors: const [Color(0xFFFF7A18), Color(0xFFFF3D81)])),
               const SizedBox(width: 18),
               Expanded(child: _SummaryCard(title: 'Top Category', amount: topCategory?.key ?? '-', subtitle: topCategory == null ? 'No data' : '₹ ${topCategory.value.toStringAsFixed(0)}', icon: Icons.category_rounded, gradientColors: const [Color(0xFFFB7185), Color(0xFFF97316)])),
-              const SizedBox(width: 18),
-              Expanded(child: _SummaryCard(title: 'Total Records', amount: '${allTransactions.length}', subtitle: 'All time transactions', icon: Icons.pie_chart_rounded, gradientColors: const [Color(0xFF14B8A6), Color(0xFF06B6D4)])),
             ],
           ),
           const SizedBox(height: 22),
@@ -1564,6 +1880,84 @@ class _DashboardPage extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+int _calculateCurrentStreak(List<WebTx> transactions) {
+  if (transactions.isEmpty) return 0;
+
+  final txDays = transactions
+      .map((tx) => DateTime(tx.date.year, tx.date.month, tx.date.day))
+      .toSet();
+
+  var cursor = DateTime.now();
+  cursor = DateTime(cursor.year, cursor.month, cursor.day);
+
+  if (!txDays.contains(cursor)) {
+    final yesterday = cursor.subtract(const Duration(days: 1));
+    if (txDays.contains(yesterday)) {
+      cursor = yesterday;
+    } else {
+      return 0;
+    }
+  }
+
+  var streak = 0;
+  while (txDays.contains(cursor)) {
+    streak++;
+    cursor = cursor.subtract(const Duration(days: 1));
+  }
+  return streak;
+}
+
+class _LimitSummaryCard extends StatelessWidget {
+  final String userId;
+  final double totalExpense;
+  final VoidCallback onSetLimit;
+
+  const _LimitSummaryCard({required this.userId, required this.totalExpense, required this.onSetLimit});
+
+  @override
+  Widget build(BuildContext context) {
+    if (userId.isEmpty) {
+      return _SummaryCard(
+        title: 'Limit',
+        amount: 'Not set',
+        subtitle: 'Set spending limit',
+        icon: Icons.savings_rounded,
+        gradientColors: const [Color(0xFF22C55E), Color(0xFF14B8A6)],
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(userId).snapshots(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data() ?? <String, dynamic>{};
+        final dailyLimit = (data['dailyLimit'] as num?)?.toDouble() ?? 0;
+        final monthlyLimit = (data['monthlyLimit'] as num?)?.toDouble() ?? 0;
+        final displayLimit = monthlyLimit > 0 ? monthlyLimit : dailyLimit;
+        final isCrossed = displayLimit > 0 && totalExpense > displayLimit;
+        final remaining = displayLimit > 0 ? (displayLimit - totalExpense) : 0;
+
+        return InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: onSetLimit,
+          child: _SummaryCard(
+            title: monthlyLimit > 0 ? 'Monthly Limit' : 'Daily Limit',
+            amount: displayLimit > 0 ? '₹ ${displayLimit.toStringAsFixed(0)}' : 'Not set',
+            subtitle: displayLimit <= 0
+                ? 'Tap to set limit'
+                : isCrossed
+                    ? 'Limit crossed ₹ ${(-remaining).toStringAsFixed(0)}'
+                    : 'Remaining ₹ ${remaining.toStringAsFixed(0)}',
+            icon: isCrossed ? Icons.warning_amber_rounded : Icons.savings_rounded,
+            gradientColors: isCrossed
+                ? const [Color(0xFFFF4D57), Color(0xFFF97316)]
+                : const [Color(0xFF22C55E), Color(0xFF14B8A6)],
+          ),
+        );
+      },
     );
   }
 }
@@ -2053,6 +2447,8 @@ class _TopBar extends StatelessWidget {
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onThemeToggle;
   final VoidCallback onAddExpense;
+  final VoidCallback onSetLimit;
+  final Future<void> Function() onLogout;
   final Widget notificationButton;
 
   const _TopBar({
@@ -2063,6 +2459,8 @@ class _TopBar extends StatelessWidget {
     required this.onSearchChanged,
     required this.onThemeToggle,
     required this.onAddExpense,
+    required this.onSetLimit,
+    required this.onLogout,
     required this.notificationButton,
   });
 
@@ -2099,6 +2497,15 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: onSetLimit,
+            icon: const Icon(Icons.savings_rounded, size: 18),
+            label: const Text('Set Limit'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            ),
+          ),
           const SizedBox(width: 10),
           ElevatedButton.icon(
             onPressed: onAddExpense,
@@ -2116,7 +2523,27 @@ class _TopBar extends StatelessWidget {
           IconButton(onPressed: onThemeToggle, icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode)),
           notificationButton,
           const SizedBox(width: 8),
-          _UserAvatar(photoUrl: photoUrl, radius: 20),
+          PopupMenuButton<String>(
+            tooltip: 'Profile',
+            offset: const Offset(0, 46),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            onSelected: (value) {
+              if (value == 'logout') onLogout();
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout_rounded, size: 19),
+                    SizedBox(width: 10),
+                    Text('Logout'),
+                  ],
+                ),
+              ),
+            ],
+            child: _UserAvatar(photoUrl: photoUrl, radius: 20),
+          ),
         ],
       ),
     );
@@ -2608,6 +3035,7 @@ class _PremiumSelectField extends StatelessWidget {
   final IconData icon;
   final List<String> items;
   final ValueChanged<String> onChanged;
+  final Future<void> Function()? onAddCustom;
 
   const _PremiumSelectField({
     required this.label,
@@ -2615,6 +3043,7 @@ class _PremiumSelectField extends StatelessWidget {
     required this.icon,
     required this.items,
     required this.onChanged,
+    this.onAddCustom,
   });
 
   @override
@@ -2629,27 +3058,61 @@ class _PremiumSelectField extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(color: isDark ? Colors.white12 : Colors.black.withOpacity(0.06)),
       ),
-      itemBuilder: (context) => items.map((item) {
-        final selected = item == value;
-        return PopupMenuItem<String>(
-          value: item,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            decoration: BoxDecoration(
-              color: selected ? const Color(0xFF7A3CFF).withOpacity(0.18) : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
+      itemBuilder: (context) {
+        final menuItems = <PopupMenuEntry<String>>[
+          ...items.map((item) {
+          final selected = item == value;
+          return PopupMenuItem<String>(
+            value: item,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              decoration: BoxDecoration(
+                color: selected ? const Color(0xFF7A3CFF).withOpacity(0.18) : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(selected ? Icons.check_circle_rounded : Icons.circle_outlined, size: 18, color: selected ? const Color(0xFF8B5CF6) : null),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(item, style: TextStyle(fontWeight: selected ? FontWeight.w900 : FontWeight.w600))),
+                ],
+              ),
             ),
-            child: Row(
-              children: [
-                Icon(selected ? Icons.check_circle_rounded : Icons.circle_outlined, size: 18, color: selected ? const Color(0xFF8B5CF6) : null),
-                const SizedBox(width: 10),
-                Expanded(child: Text(item, style: TextStyle(fontWeight: selected ? FontWeight.w900 : FontWeight.w600))),
-              ],
+          );
+        }),
+        ];
+
+        if (onAddCustom != null) {
+          menuItems.add(
+            PopupMenuItem<String>(
+              value: '__add_custom_category__',
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7A3CFF).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.add_circle_rounded, size: 19, color: Color(0xFF8B5CF6)),
+                    SizedBox(width: 10),
+                    Expanded(child: Text('Add Custom Category', style: TextStyle(fontWeight: FontWeight.w900))),
+                  ],
+                ),
+              ),
             ),
-          ),
-        );
-      }).toList(),
-      onSelected: onChanged,
+          );
+        }
+
+        return menuItems;
+      },
+      onSelected: (item) {
+        if (item == '__add_custom_category__') {
+          onAddCustom?.call();
+          return;
+        }
+        onChanged(item);
+      },
       child: _PremiumField(
         child: SizedBox(
           height: 58,

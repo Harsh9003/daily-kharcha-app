@@ -1803,6 +1803,13 @@ class _MainScreenState extends State<MainScreen> {
       debugPrint('Firestore load failed: $e');
     }
 
+    final uid = userId;
+    if (uid != null) {
+      StreakService.syncUserStreakFromTransactions(uid).catchError((e) {
+        debugPrint("🔥 Streak sync failed: $e");
+      });
+    }
+
     setState(() {});
   }
 
@@ -1848,16 +1855,28 @@ class _MainScreenState extends State<MainScreen> {
 
     await saveData();
 
+    _saveTransactionAndUpdateStreak(newTx);
+  }
+
+  Future<void> _saveTransactionAndUpdateStreak(Map<String, dynamic> tx) async {
     final uid = userId;
-    if (uid != null) {
-      StreakService.updateStreakAfterTransaction(uid).catchError((e) {
-        debugPrint("🔥 Streak update failed: $e");
-      });
+    if (uid == null) {
+      debugPrint("❌ Streak skipped: no logged in user");
+      return;
     }
 
-    _saveTransactionToFirestore(newTx).catchError((e) {
-      debugPrint("❌ Firestore sync failed: $e");
-    });
+    try {
+      await _saveTransactionToFirestore(tx);
+      await StreakService.updateStreakAfterTransaction(uid);
+      debugPrint("✅ Streak updated for user: $uid");
+    } catch (e) {
+      debugPrint("🔥 Transaction/streak sync failed: $e");
+
+      // Fallback: jab internet wapas aaye/loadData chale, existing transactions se streak rebuild ho jayega.
+      StreakService.syncUserStreakFromTransactions(uid).catchError((syncError) {
+        debugPrint("🔥 Streak fallback sync failed: $syncError");
+      });
+    }
   }
 
   double get total {
@@ -2093,6 +2112,35 @@ class _MainScreenState extends State<MainScreen> {
         ],
       ),
     );
+  }
+
+
+  Future<void> _refreshHomeData() async {
+    final uid = userId ?? FirebaseAuth.instance.currentUser?.uid;
+
+    try {
+      await loadUserCategoriesFromFirestore();
+    } catch (e) {
+      debugPrint('Category refresh failed: $e');
+    }
+
+    try {
+      await _loadTransactionsFromFirestore();
+    } catch (e) {
+      debugPrint('Transaction refresh failed: $e');
+    }
+
+    if (uid != null) {
+      try {
+        await StreakService.syncUserStreakFromTransactions(uid);
+      } catch (e) {
+        debugPrint('Streak refresh failed: $e');
+      }
+    }
+
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Widget buildHome() {
@@ -2439,13 +2487,29 @@ class _MainScreenState extends State<MainScreen> {
           ),
 
           Expanded(
-            child: ListView.builder(
-              padding: EdgeInsets.only(bottom: 130),
-              itemCount: filtered.length,
-              itemBuilder: (_, i) {
-                var tx = filtered[i];
+            child: RefreshIndicator(
+              onRefresh: _refreshHomeData,
+              child: filtered.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.only(bottom: 130, top: 90),
+                      children: const [
+                        Center(
+                          child: Text(
+                            "No transactions found",
+                            style: TextStyle(color: Colors.white54),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.only(bottom: 130),
+                      itemCount: filtered.length,
+                      itemBuilder: (_, i) {
+                        var tx = filtered[i];
 
-                return Dismissible(
+                        return Dismissible(
                   key: ValueKey(
                     tx['id'] ?? '${tx['category']}_${(tx['date'] as DateTime).millisecondsSinceEpoch}_${tx['amount']}',
                   ),
@@ -2484,8 +2548,9 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                     ),
                   ),
-                );
-              },
+                        );
+                      },
+                    ),
             ),
           ),
         ],

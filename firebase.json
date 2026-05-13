@@ -1,1 +1,37 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"daily-kharcha-d4677","appId":"1:899253420996:android:93f210d017329670295a91","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"daily-kharcha-d4677","configurations":{"android":"1:899253420996:android:93f210d017329670295a91","web":"1:899253420996:web:ca81b25353958fcf295a91"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "daily-kharcha-d4677",
+          "appId": "1:899253420996:android:93f210d017329670295a91",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "daily-kharcha-d4677",
+          "configurations": {
+            "android": "1:899253420996:android:93f210d017329670295a91",
+            "web": "1:899253420996:web:ca81b25353958fcf295a91"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+  
+}
