@@ -130,4 +130,46 @@ class UdharService {
 
     await customersRef().doc(customerId).delete();
   }
+  static Future<void> updateCustomer({
+    required String customerId,
+    required String name,
+    required String phone,
+  }) async {
+    final cleanName = name.trim();
+
+    await customersRef().doc(customerId).update({
+      'name': cleanName,
+      'nameLower': cleanName.toLowerCase(),
+      'phone': phone.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+  static Future<void> updateTransactionFromCustomer({
+    required String customerId,
+    required String transactionId,
+    required String oldType,
+    required double oldAmount,
+    required String newType,
+    required double newAmount,
+    required String note,
+  }) async {
+    final customerDoc = customersRef().doc(customerId);
+    final txDoc = customerDoc.collection('transactions').doc(transactionId);
+
+    final double oldBalanceEffect = oldType == 'given' ? oldAmount : -oldAmount;
+    final double newBalanceEffect = newType == 'given' ? newAmount : -newAmount;
+    final double balanceDifference = newBalanceEffect - oldBalanceEffect;
+
+    await customerDoc.update({
+      'balance': FieldValue.increment(balanceDifference),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await txDoc.update({
+      'type': newType,
+      'amount': newAmount,
+      'note': note.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
 }

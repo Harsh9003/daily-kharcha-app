@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../udhar/services/udhar_service.dart';
+import '../services/pdf_service.dart';
 
 class ReportsPage extends StatefulWidget {
   final List<Map<String, dynamic>> reportList;
@@ -118,6 +119,7 @@ class _ReportsPageState extends State<ReportsPage> {
                 totalAmount: totalAmount,
                 willReceive: willReceive,
                 needToPay: needToPay,
+                customers: customers,
               ),
               Expanded(
                 child: Padding(
@@ -166,6 +168,7 @@ class _ReportsPageState extends State<ReportsPage> {
     required double totalAmount,
     required double willReceive,
     required double needToPay,
+    required List<Map<String, dynamic>> customers,
   }) {
     return Container(
       width: double.infinity,
@@ -196,7 +199,12 @@ class _ReportsPageState extends State<ReportsPage> {
                 Row(
                   children: [
                     GestureDetector(
-                      onTap: widget.onSmartInsightsTap,
+                      onTap: () => _handleSmartInsightsTap(
+                        customers: customers,
+                        totalAmount: totalAmount,
+                        willReceive: willReceive,
+                        needToPay: needToPay,
+                      ),
                       child: _headerIcon(
                         Icons.auto_awesome_rounded,
                         Colors.amberAccent,
@@ -204,7 +212,7 @@ class _ReportsPageState extends State<ReportsPage> {
                     ),
                     const SizedBox(width: 10),
                     GestureDetector(
-                      onTap: widget.onExportTap,
+                      onTap: () => _handleHeaderExport(customers),
                       child: _headerIcon(
                         Icons.ios_share_rounded,
                         Colors.greenAccent,
@@ -248,6 +256,561 @@ class _ReportsPageState extends State<ReportsPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _handleHeaderExport(List<Map<String, dynamic>> customers) async {
+    if (selectedSection == "Transactions") {
+      widget.onExportTap();
+      return;
+    }
+
+    _openUdharExportSheet(customers);
+  }
+
+  void _openUdharExportSheet(List<Map<String, dynamic>> customers) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final panelColor = isDark ? const Color(0xFF171827) : Colors.white;
+        final titleColor = isDark ? Colors.white : const Color(0xFF24242C);
+        final subColor = isDark ? Colors.white54 : Colors.black45;
+        final tileColor = isDark ? Colors.white.withOpacity(0.06) : const Color(0xFFF7F7FA);
+        final borderColor = isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06);
+
+        Future<void> exportUdharReport() async {
+          Navigator.pop(sheetContext);
+          try {
+            await PdfService.shareUdharBookReportPdf(customers: customers);
+          } catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("Unable to generate Udhar Book report: $e")),
+            );
+          }
+        }
+
+        return SafeArea(
+          top: false,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            decoration: BoxDecoration(
+              color: panelColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.20),
+                  blurRadius: 24,
+                  offset: const Offset(0, -8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.black12,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  "Export Report",
+                  style: TextStyle(
+                    color: titleColor,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  "Udhar Book Report",
+                  style: TextStyle(
+                    color: subColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _exportSheetTile(
+                  isDark: isDark,
+                  tileColor: tileColor,
+                  borderColor: borderColor,
+                  icon: Icons.picture_as_pdf_rounded,
+                  title: "Export PDF",
+                  subtitle: "Open print / save PDF dialog",
+                  onTap: exportUdharReport,
+                ),
+                const SizedBox(height: 10),
+                _exportSheetTile(
+                  isDark: isDark,
+                  tileColor: tileColor,
+                  borderColor: borderColor,
+                  icon: Icons.share_rounded,
+                  title: "Share Report",
+                  subtitle: "Share the PDF report instantly",
+                  onTap: exportUdharReport,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _exportSheetTile({
+    required bool isDark,
+    required Color tileColor,
+    required Color borderColor,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 13),
+        decoration: BoxDecoration(
+          color: tileColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFF6C5CE7).withOpacity(isDark ? 0.22 : 0.10),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: const Color(0xFF4B3F8F),
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : const Color(0xFF24242C),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: isDark ? Colors.white54 : Colors.black45,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: isDark ? Colors.white38 : Colors.black38,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleSmartInsightsTap({
+    required List<Map<String, dynamic>> customers,
+    required double totalAmount,
+    required double willReceive,
+    required double needToPay,
+  }) {
+    if (selectedSection == "Transactions") {
+      widget.onSmartInsightsTap();
+      return;
+    }
+
+    _openUdharSmartInsightsDialog(
+      customers: customers,
+      willReceive: willReceive,
+      needToPay: needToPay,
+    );
+  }
+
+  void _openUdharSmartInsightsDialog({
+    required List<Map<String, dynamic>> customers,
+    required double willReceive,
+    required double needToPay,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final receiveList = customers
+        .where((e) => (e['balance'] as double) > 0)
+        .toList()
+      ..sort((a, b) =>
+          (b['balance'] as double).compareTo(a['balance'] as double));
+
+    final payList = customers
+        .where((e) => (e['balance'] as double) < 0)
+        .toList()
+      ..sort((a, b) =>
+          (a['balance'] as double).compareTo(b['balance'] as double));
+
+    final settledCount = customers
+        .where((e) => (e['balance'] as double) == 0)
+        .length;
+    final activeCount = customers.length - settledCount;
+    final netBalance = willReceive - needToPay;
+    final highestReceive = receiveList.isNotEmpty ? receiveList.first : null;
+    final highestPay = payList.isNotEmpty ? payList.first : null;
+
+    showDialog(
+      context: context,
+      builder: (_) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+          backgroundColor: Colors.transparent,
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.86,
+            ),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF111322) : Colors.white,
+              borderRadius: BorderRadius.circular(26),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.45 : 0.14),
+                  blurRadius: 28,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF6C5CE7), Color(0xFF4B3F8F)],
+                          ),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: const Icon(
+                          Icons.auto_awesome_rounded,
+                          color: Colors.amberAccent,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Udhar Book Insights",
+                              style: TextStyle(
+                                color: isDark ? Colors.white : const Color(0xFF151526),
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              "Smart summary of pending balances",
+                              style: TextStyle(
+                                color: isDark ? Colors.white54 : Colors.black45,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withOpacity(0.07)
+                                : Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.close_rounded,
+                            color: isDark ? Colors.white70 : Colors.black54,
+                            size: 19,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _udharInsightTile(
+                          isDark: isDark,
+                          title: "Receive",
+                          value: "₹ ${willReceive.toStringAsFixed(0)}",
+                          icon: Icons.south_west_rounded,
+                          color: Colors.greenAccent,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _udharInsightTile(
+                          isDark: isDark,
+                          title: "Pay",
+                          value: "₹ ${needToPay.toStringAsFixed(0)}",
+                          icon: Icons.north_east_rounded,
+                          color: Colors.orangeAccent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  _udharInsightTile(
+                    isDark: isDark,
+                    title: netBalance >= 0 ? "Net Positive" : "Net Payable",
+                    value: "₹ ${netBalance.abs().toStringAsFixed(0)}",
+                    icon: Icons.account_balance_wallet_rounded,
+                    color: netBalance >= 0 ? Colors.greenAccent : Colors.orangeAccent,
+                    fullWidth: true,
+                  ),
+                  const SizedBox(height: 14),
+                  _insightPersonRow(
+                    isDark: isDark,
+                    title: "Highest Receivable",
+                    person: highestReceive,
+                    emptyText: "No pending receiving",
+                    color: Colors.greenAccent,
+                  ),
+                  const SizedBox(height: 8),
+                  _insightPersonRow(
+                    isDark: isDark,
+                    title: "Highest Payable",
+                    person: highestPay,
+                    emptyText: "No pending payment",
+                    color: Colors.orangeAccent,
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _smallInsightStat(
+                          isDark: isDark,
+                          label: "Active People",
+                          value: "$activeCount",
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _smallInsightStat(
+                          isDark: isDark,
+                          label: "Settled",
+                          value: "$settledCount",
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _udharInsightTile({
+    required bool isDark,
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+    bool fullWidth = false,
+  }) {
+    return Container(
+      width: fullWidth ? double.infinity : null,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.055) : const Color(0xFFF6F7FB),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.06) : Colors.grey.shade200,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(icon, color: color, size: 19),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? Colors.white54 : Colors.black45,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : const Color(0xFF151526),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _insightPersonRow({
+    required bool isDark,
+    required String title,
+    required Map<String, dynamic>? person,
+    required String emptyText,
+    required Color color,
+  }) {
+    final name = person == null ? emptyText : person['name'].toString();
+    final balance = person == null ? 0.0 : (person['balance'] as double).abs();
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.045) : const Color(0xFFF6F7FB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.055) : Colors.grey.shade200,
+        ),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 17,
+            backgroundColor: color.withOpacity(0.16),
+            child: Icon(Icons.person_rounded, color: color, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: isDark ? Colors.white54 : Colors.black45,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : const Color(0xFF151526),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (person != null) ...[
+            const SizedBox(width: 8),
+            Text(
+              "₹ ${balance.toStringAsFixed(0)}",
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _smallInsightStat({
+    required bool isDark,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.045) : const Color(0xFFF6F7FB),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: isDark ? Colors.white54 : Colors.black45,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              color: isDark ? Colors.white : const Color(0xFF151526),
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     );
   }

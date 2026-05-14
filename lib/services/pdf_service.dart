@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class PdfService {
   static String _monthShort(DateTime date) {
@@ -426,6 +427,219 @@ class PdfService {
     return pdf.save();
   }
 
+
+  static Future<Uint8List> generateUdharBookReportPdf({
+    required List<Map<String, dynamic>> customers,
+    String userName = "Daily Kharcha User",
+  }) async {
+    final pdf = pw.Document();
+
+    final fontData = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+    final baseFont = pw.Font.ttf(fontData);
+
+    final willReceive = customers
+        .where((e) => ((e['balance'] ?? 0) as num).toDouble() > 0)
+        .fold<double>(0, (sum, e) => sum + ((e['balance'] ?? 0) as num).toDouble());
+
+    final needToPay = customers
+        .where((e) => ((e['balance'] ?? 0) as num).toDouble() < 0)
+        .fold<double>(0, (sum, e) => sum + ((e['balance'] ?? 0) as num).toDouble().abs());
+
+    final netBalance = willReceive - needToPay;
+
+    final receiveList = customers
+        .where((e) => ((e['balance'] ?? 0) as num).toDouble() > 0)
+        .toList()
+      ..sort((a, b) => ((b['balance'] ?? 0) as num)
+          .toDouble()
+          .compareTo(((a['balance'] ?? 0) as num).toDouble()));
+
+    final payList = customers
+        .where((e) => ((e['balance'] ?? 0) as num).toDouble() < 0)
+        .toList()
+      ..sort((a, b) => ((a['balance'] ?? 0) as num)
+          .toDouble()
+          .compareTo(((b['balance'] ?? 0) as num).toDouble()));
+
+    String formatUpdatedAt(dynamic updatedAt) {
+      DateTime date;
+      if (updatedAt is Timestamp) {
+        date = updatedAt.toDate();
+      } else if (updatedAt is DateTime) {
+        date = updatedAt;
+      } else {
+        return '-';
+      }
+      return _formatDateForPdf(date);
+    }
+
+    List<List<String>> rowsFor(List<Map<String, dynamic>> list, String direction) {
+      if (list.isEmpty) {
+        return [
+          ['-', direction == 'receive' ? 'No receiving pending' : 'No payment pending', '-', '-']
+        ];
+      }
+
+      return list.map((item) {
+        final name = (item['name'] ?? 'Unknown').toString();
+        final phone = (item['phone'] ?? '').toString();
+        final balance = ((item['balance'] ?? 0) as num).toDouble().abs();
+        return [
+          name,
+          phone.isEmpty ? '-' : phone,
+          '₹ ${balance.toStringAsFixed(0)}',
+          formatUpdatedAt(item['updatedAt']),
+        ];
+      }).toList();
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageTheme: pw.PageTheme(
+          margin: const pw.EdgeInsets.all(28),
+          theme: pw.ThemeData.withFont(base: baseFont, bold: baseFont),
+        ),
+        build: (context) => [
+          pw.Container(
+            padding: const pw.EdgeInsets.all(18),
+            decoration: pw.BoxDecoration(
+              borderRadius: pw.BorderRadius.circular(16),
+              gradient: const pw.LinearGradient(
+                colors: [
+                  PdfColor.fromInt(0xFF1E1E2C),
+                  PdfColor.fromInt(0xFF4B3F8F),
+                ],
+              ),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  'Daily Kharcha',
+                  style: pw.TextStyle(
+                    color: PdfColors.white,
+                    fontSize: 24,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 6),
+                pw.Text(
+                  'Udhar Book Report',
+                  style: const pw.TextStyle(color: PdfColors.white, fontSize: 13),
+                ),
+                pw.SizedBox(height: 14),
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        _pdfLabelValue('User', userName),
+                        _pdfLabelValue('Generated', _formatDateForPdf(DateTime.now())),
+                      ],
+                    ),
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        _pdfLabelValue('People', '${customers.length}'),
+                        _pdfLabelValue('Net Balance', '₹ ${netBalance.abs().toStringAsFixed(0)}'),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 18),
+          pw.Text(
+            'Summary',
+            style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 10),
+          pw.Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _pdfSummaryCard('You Will Receive', '₹ ${willReceive.toStringAsFixed(0)}'),
+              _pdfSummaryCard('You Need To Pay', '₹ ${needToPay.toStringAsFixed(0)}'),
+              _pdfSummaryCard('Net Balance', '₹ ${netBalance.abs().toStringAsFixed(0)}'),
+              _pdfSummaryCard('Total People', '${customers.length}'),
+            ],
+          ),
+          pw.SizedBox(height: 18),
+          pw.Text(
+            'You Will Receive',
+            style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 8),
+          pw.TableHelper.fromTextArray(
+            headers: ['Name', 'Phone', 'Amount', 'Updated'],
+            data: rowsFor(receiveList, 'receive'),
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+            headerDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFF198754)),
+            cellStyle: const pw.TextStyle(fontSize: 10),
+            cellAlignment: pw.Alignment.centerLeft,
+          ),
+          pw.SizedBox(height: 18),
+          pw.Text(
+            'You Need To Pay',
+            style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 8),
+          pw.TableHelper.fromTextArray(
+            headers: ['Name', 'Phone', 'Amount', 'Updated'],
+            data: rowsFor(payList, 'pay'),
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+            headerDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFFF9800)),
+            cellStyle: const pw.TextStyle(fontSize: 10),
+            cellAlignment: pw.Alignment.centerLeft,
+          ),
+          pw.SizedBox(height: 20),
+          pw.Divider(),
+          pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Text(
+              'Generated by Daily Kharcha',
+              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  static Future<void> exportUdharBookReportPdf({
+    required List<Map<String, dynamic>> customers,
+    String userName = "Daily Kharcha User",
+  }) async {
+    final bytes = await generateUdharBookReportPdf(
+      customers: customers,
+      userName: userName,
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (format) async => bytes,
+      name: 'daily_kharcha_udhar_book_report',
+    );
+  }
+
+  static Future<void> shareUdharBookReportPdf({
+    required List<Map<String, dynamic>> customers,
+    String userName = "Daily Kharcha User",
+  }) async {
+    final bytes = await generateUdharBookReportPdf(
+      customers: customers,
+      userName: userName,
+    );
+
+    await Printing.sharePdf(
+      bytes: bytes,
+      filename: 'daily_kharcha_udhar_book_report.pdf',
+    );
+  }
+
   static Future<void> exportPdf({
     required List<Map<String, dynamic>> reportList,
     required String reportView,
@@ -477,6 +691,52 @@ class PdfService {
     await Printing.sharePdf(
       bytes: bytes,
       filename: 'daily_kharcha_${reportView.toLowerCase()}_report.pdf',
+    );
+  }
+  static Future<void> shareUdharStatementPdf({
+    required String customerName,
+    required String phone,
+    required double balance,
+    required List<Map<String, dynamic>> transactions,
+  }) async {
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.MultiPage(
+        build: (context) => [
+          pw.Text(
+            'Udhar Statement',
+            style: pw.TextStyle(
+              fontSize: 24,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+
+          pw.SizedBox(height: 20),
+
+          pw.Text('Customer: $customerName'),
+          pw.Text('Phone: $phone'),
+          pw.Text('Balance: ₹ ${balance.toStringAsFixed(0)}'),
+
+          pw.SizedBox(height: 20),
+
+          pw.Table.fromTextArray(
+            headers: ['Type', 'Amount', 'Note'],
+            data: transactions.map((tx) {
+              return [
+                tx['type'].toString(),
+                '₹ ${tx['amount']}',
+                tx['note'].toString(),
+              ];
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+
+    await Printing.sharePdf(
+      bytes: await pdf.save(),
+      filename: 'udhar_statement.pdf',
     );
   }
 }

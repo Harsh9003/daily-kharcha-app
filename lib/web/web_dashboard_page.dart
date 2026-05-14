@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class WebDashboardPage extends StatefulWidget {
   final bool isDark;
@@ -198,12 +199,17 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
           onTransactionTap: _openTransactionDetails,
         );
       case 2:
+        return _WebUdharBookPage(
+          key: const ValueKey('udhar-book'),
+          isDark: widget.isDark,
+        );
+      case 3:
         return _CategoriesPage(
           key: const ValueKey('categories'),
           topCategories: topCategories,
           totalExpense: totalExpense,
         );
-      case 3:
+      case 4:
         return _ReportsPage(
           key: const ValueKey('reports'),
           transactions: filteredTransactions,
@@ -212,21 +218,21 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
           filterBar: filterBar,
           onTransactionTap: _openTransactionDetails,
         );
-      case 4:
+      case 5:
         return _SimpleInfoPage(
           key: const ValueKey('reminders'),
           title: 'Reminders',
           message: 'Reminder summary and scheduling controls will be connected here. Existing mobile reminder settings will remain safe.',
           icon: Icons.notifications_active_rounded,
         );
-      case 5:
+      case 6:
         return _SimpleInfoPage(
           key: const ValueKey('settings'),
           title: 'Settings',
           message: 'Theme, profile, and app preferences will be managed here in a web-friendly settings layout.',
           icon: Icons.settings_rounded,
         );
-      case 6:
+      case 7:
         return _RecycleBinPage(
           key: const ValueKey('recycle-bin'),
           onRestore: _restoreDeletedTransaction,
@@ -1413,7 +1419,7 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
       message: 'Transaction will be auto-deleted permanently after 5 days.',
       icon: Icons.delete_outline_rounded,
       actionLabel: 'Open',
-      onAction: () => setState(() => selectedMenu = 6),
+      onAction: () => setState(() => selectedMenu = 7),
     );
   }
 
@@ -2438,6 +2444,1023 @@ class _SimpleInfoPage extends StatelessWidget {
   }
 }
 
+
+class _WebUdharCustomer {
+  final String id;
+  final String name;
+  final String phone;
+  final double balance;
+  final DateTime updatedAt;
+
+  const _WebUdharCustomer({
+    required this.id,
+    required this.name,
+    required this.phone,
+    required this.balance,
+    required this.updatedAt,
+  });
+
+  factory _WebUdharCustomer.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
+    final updated = data['updatedAt'];
+
+    return _WebUdharCustomer(
+      id: doc.id,
+      name: (data['name'] ?? '').toString(),
+      phone: (data['phone'] ?? '').toString(),
+      balance: ((data['balance'] ?? 0) as num).toDouble(),
+      updatedAt: updated is Timestamp ? updated.toDate() : DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  }
+}
+
+class _WebUdharTransaction {
+  final String id;
+  final String type;
+  final double amount;
+  final String note;
+  final DateTime createdAt;
+
+  const _WebUdharTransaction({
+    required this.id,
+    required this.type,
+    required this.amount,
+    required this.note,
+    required this.createdAt,
+  });
+
+  factory _WebUdharTransaction.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
+    final created = data['createdAt'];
+
+    return _WebUdharTransaction(
+      id: doc.id,
+      type: (data['type'] ?? 'given').toString(),
+      amount: ((data['amount'] ?? 0) as num).toDouble(),
+      note: (data['note'] ?? '').toString(),
+      createdAt: created is Timestamp ? created.toDate() : DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  }
+}
+
+class _WebUdharBookPage extends StatefulWidget {
+  final bool isDark;
+
+  const _WebUdharBookPage({
+    super.key,
+    required this.isDark,
+  });
+
+  @override
+  State<_WebUdharBookPage> createState() => _WebUdharBookPageState();
+}
+
+class _WebUdharBookPageState extends State<_WebUdharBookPage> {
+  String? selectedCustomerId;
+  String searchQuery = '';
+  String filter = 'all';
+
+  String get _uid => FirebaseAuth.instance.currentUser!.uid;
+
+  CollectionReference<Map<String, dynamic>> get _customersRef {
+    return FirebaseFirestore.instance.collection('users').doc(_uid).collection('udharCustomers');
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _customersStream() {
+    return _customersRef.orderBy('updatedAt', descending: true).snapshots();
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _transactionsStream(String customerId) {
+    return _customersRef.doc(customerId).collection('transactions').orderBy('createdAt', descending: true).snapshots();
+  }
+
+  Future<void> _addCustomerTransaction({
+    required String name,
+    required String phone,
+    required String type,
+    required double amount,
+    required String note,
+  }) async {
+    final cleanName = name.trim();
+    final cleanPhone = phone.trim();
+    if (cleanName.isEmpty || amount <= 0) return;
+
+    final existing = await _customersRef.where('nameLower', isEqualTo: cleanName.toLowerCase()).limit(1).get();
+    final balanceChange = type == 'given' ? amount : -amount;
+
+    if (existing.docs.isEmpty) {
+      final doc = _customersRef.doc();
+      await doc.set({
+        'name': cleanName,
+        'nameLower': cleanName.toLowerCase(),
+        'phone': cleanPhone,
+        'balance': balanceChange,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      await doc.collection('transactions').add({
+        'type': type,
+        'amount': amount,
+        'note': note.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      setState(() => selectedCustomerId = doc.id);
+    } else {
+      final doc = existing.docs.first.reference;
+      await doc.update({
+        'balance': FieldValue.increment(balanceChange),
+        'phone': cleanPhone.isNotEmpty ? cleanPhone : (existing.docs.first.data()['phone'] ?? ''),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      await doc.collection('transactions').add({
+        'type': type,
+        'amount': amount,
+        'note': note.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      setState(() => selectedCustomerId = doc.id);
+    }
+  }
+
+  Future<void> _addTransactionToCustomer({
+    required _WebUdharCustomer customer,
+    required String type,
+    required double amount,
+    required String note,
+  }) async {
+    if (amount <= 0) return;
+
+    final doc = _customersRef.doc(customer.id);
+    final balanceChange = type == 'given' ? amount : -amount;
+
+    await doc.update({
+      'balance': FieldValue.increment(balanceChange),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await doc.collection('transactions').add({
+      'type': type,
+      'amount': amount,
+      'note': note.trim(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _updateCustomer({
+    required _WebUdharCustomer customer,
+    required String name,
+    required String phone,
+  }) async {
+    final cleanName = name.trim();
+    if (cleanName.isEmpty) return;
+
+    await _customersRef.doc(customer.id).update({
+      'name': cleanName,
+      'nameLower': cleanName.toLowerCase(),
+      'phone': phone.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _deleteCustomer(_WebUdharCustomer customer) async {
+    final tx = await _customersRef.doc(customer.id).collection('transactions').get();
+    final batch = FirebaseFirestore.instance.batch();
+
+    for (final doc in tx.docs) {
+      batch.delete(doc.reference);
+    }
+
+    batch.delete(_customersRef.doc(customer.id));
+    await batch.commit();
+
+    if (selectedCustomerId == customer.id && mounted) {
+      setState(() => selectedCustomerId = null);
+    }
+  }
+
+  Future<void> _deleteTransaction({
+    required _WebUdharCustomer customer,
+    required _WebUdharTransaction transaction,
+  }) async {
+    final reverseBalance = transaction.type == 'given' ? -transaction.amount : transaction.amount;
+    final customerDoc = _customersRef.doc(customer.id);
+
+    await customerDoc.update({
+      'balance': FieldValue.increment(reverseBalance),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await customerDoc.collection('transactions').doc(transaction.id).delete();
+  }
+
+  Future<void> _updateTransaction({
+    required _WebUdharCustomer customer,
+    required _WebUdharTransaction transaction,
+    required String newType,
+    required double newAmount,
+    required String note,
+  }) async {
+    if (newAmount <= 0) return;
+
+    final oldEffect = transaction.type == 'given' ? transaction.amount : -transaction.amount;
+    final newEffect = newType == 'given' ? newAmount : -newAmount;
+    final difference = newEffect - oldEffect;
+
+    final customerDoc = _customersRef.doc(customer.id);
+
+    await customerDoc.update({
+      'balance': FieldValue.increment(difference),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await customerDoc.collection('transactions').doc(transaction.id).update({
+      'type': newType,
+      'amount': newAmount,
+      'note': note.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _sendWhatsAppReminder(_WebUdharCustomer customer) async {
+    final rawPhone = customer.phone.trim();
+
+    if (rawPhone.isEmpty) {
+      _showSnack('Mobile number is missing for this person.');
+      return;
+    }
+
+    var phone = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (phone.length == 10) phone = '91$phone';
+
+    final amount = customer.balance.abs().toStringAsFixed(0);
+    final message = customer.balance < 0
+        ? 'Hi ${customer.name}, reminder regarding ₹$amount pending payment.'
+        : 'Hi ${customer.name}, gentle reminder for ₹$amount pending amount. Please settle it when possible.';
+
+    final uri = Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(message)}');
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+
+    if (!launched) {
+      _showSnack('Unable to open WhatsApp.');
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _money(double value) => '₹ ${value.abs().toStringAsFixed(0)}';
+
+  String _dateText(DateTime date) {
+    if (date.year < 2001) return 'Just now';
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _customersStream(),
+      builder: (context, snapshot) {
+        final customers = snapshot.hasData ? snapshot.data!.docs.map(_WebUdharCustomer.fromDoc).toList() : <_WebUdharCustomer>[];
+
+        var filtered = customers.where((c) {
+          if (filter == 'receive' && c.balance <= 0) return false;
+          if (filter == 'pay' && c.balance >= 0) return false;
+          if (filter == 'settled' && c.balance != 0) return false;
+
+          final q = searchQuery.trim().toLowerCase();
+          if (q.isEmpty) return true;
+          return c.name.toLowerCase().contains(q) || c.phone.toLowerCase().contains(q);
+        }).toList();
+
+        if (selectedCustomerId == null && filtered.isNotEmpty) {
+          selectedCustomerId = filtered.first.id;
+        }
+
+        _WebUdharCustomer? selected;
+        for (final item in filtered) {
+          if (item.id == selectedCustomerId) {
+            selected = item;
+            break;
+          }
+        }
+        selected ??= filtered.isNotEmpty ? filtered.first : null;
+
+        final totalReceive = customers.where((e) => e.balance > 0).fold<double>(0, (sum, e) => sum + e.balance);
+        final totalPay = customers.where((e) => e.balance < 0).fold<double>(0, (sum, e) => sum + e.balance.abs());
+
+        return Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 390,
+                child: Column(
+                  children: [
+                    _udharHeader(isDark),
+                    const SizedBox(height: 14),
+                    _summaryStrip(isDark, totalReceive, totalPay, customers.length),
+                    const SizedBox(height: 14),
+                    _searchAndFilter(isDark),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      child: snapshot.hasData
+                          ? _customersList(isDark, filtered, selected?.id)
+                          : const Center(child: CircularProgressIndicator()),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: selected == null
+                    ? _emptyDetail(isDark)
+                    : _customerDetailPanel(isDark, selected),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _udharHeader(bool isDark) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            'Udhar Book',
+            style: TextStyle(
+              color: isDark ? Colors.white : const Color(0xFF101828),
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        _roundIconButton(
+          icon: Icons.add_rounded,
+          color: const Color(0xFF6C4DFF),
+          onTap: () => _openAddCustomerTransactionDialog(),
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryStrip(bool isDark, double totalReceive, double totalPay, int people) {
+    return Row(
+      children: [
+        Expanded(child: _summaryTile(isDark, 'Receive', _money(totalReceive), const Color(0xFF20C997))),
+        const SizedBox(width: 10),
+        Expanded(child: _summaryTile(isDark, 'Pay', _money(totalPay), const Color(0xFFFFA726))),
+        const SizedBox(width: 10),
+        Expanded(child: _summaryTile(isDark, 'People', '$people', const Color(0xFF6C4DFF))),
+      ],
+    );
+  }
+
+  Widget _summaryTile(bool isDark, String title, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.06) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 11, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 6),
+          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 14, fontWeight: FontWeight.w900)),
+        ],
+      ),
+    );
+  }
+
+  Widget _searchAndFilter(bool isDark) {
+    return Column(
+      children: [
+        TextField(
+          onChanged: (v) => setState(() => searchQuery = v),
+          style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.w700),
+          decoration: InputDecoration(
+            hintText: 'Search person...',
+            hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
+            prefixIcon: Icon(Icons.search_rounded, color: isDark ? Colors.white54 : Colors.black45),
+            filled: true,
+            fillColor: isDark ? Colors.white.withOpacity(0.06) : Colors.white,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _filterChip('All', 'all'),
+            _filterChip('Receive', 'receive'),
+            _filterChip('Pay', 'pay'),
+            _filterChip('Settled', 'settled'),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _filterChip(String label, String value) {
+    final selected = filter == value;
+
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.only(right: 7),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => setState(() => filter = value),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: selected ? const Color(0xFF6C4DFF) : Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: selected ? Colors.transparent : Colors.white10),
+            ),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: selected ? Colors.white : null, fontSize: 11, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _customersList(bool isDark, List<_WebUdharCustomer> customers, String? activeId) {
+    if (customers.isEmpty) {
+      return _emptyText(isDark, 'No udhar records found');
+    }
+
+    return ListView.builder(
+      itemCount: customers.length,
+      itemBuilder: (context, index) {
+        final customer = customers[index];
+        final selected = customer.id == activeId;
+        final isPay = customer.balance < 0;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Dismissible(
+            key: ValueKey('web_udhar_customer_${customer.id}'),
+            direction: DismissDirection.endToStart,
+            confirmDismiss: (_) async {
+              await _deleteCustomer(customer);
+              return false;
+            },
+            background: _deleteBackground(),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => setState(() => selectedCustomerId = customer.id),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? const Color(0xFF6C4DFF).withOpacity(isDark ? 0.20 : 0.10)
+                      : isDark
+                          ? Colors.white.withOpacity(0.06)
+                          : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: selected ? const Color(0xFF6C4DFF) : (isDark ? Colors.white10 : Colors.black.withOpacity(0.05))),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 23,
+                      backgroundColor: (isPay ? const Color(0xFFFFA726) : const Color(0xFF20C997)).withOpacity(0.16),
+                      child: Text(
+                        customer.name.isNotEmpty ? customer.name[0].toUpperCase() : 'U',
+                        style: TextStyle(color: isPay ? const Color(0xFFFFA726) : const Color(0xFF20C997), fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => _openEditCustomerDialog(customer),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(customer.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14, fontWeight: FontWeight.w900)),
+                              const SizedBox(height: 3),
+                              Text(customer.phone.isEmpty ? 'No mobile number' : customer.phone, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 11, fontWeight: FontWeight.w700)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(_money(customer.balance), style: TextStyle(color: isPay ? const Color(0xFFFFA726) : const Color(0xFF20C997), fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 4),
+                        IconButton(
+                          tooltip: 'Edit person',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => _openEditCustomerDialog(customer),
+                          icon: Icon(Icons.edit_rounded, size: 17, color: isDark ? Colors.white54 : Colors.black45),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _customerDetailPanel(bool isDark, _WebUdharCustomer customer) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0B1020) : Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(isDark ? 0.20 : 0.05), blurRadius: 24, offset: const Offset(0, 10)),
+        ],
+      ),
+      child: Column(
+        children: [
+          _detailHeader(isDark, customer),
+          const Divider(height: 1),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _transactionsStream(customer.id),
+              builder: (context, snapshot) {
+                final txs = snapshot.hasData ? snapshot.data!.docs.map(_WebUdharTransaction.fromDoc).toList() : <_WebUdharTransaction>[];
+
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (txs.isEmpty) {
+                  return _emptyText(isDark, 'No transactions yet');
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(18),
+                  itemCount: txs.length,
+                  itemBuilder: (context, index) {
+                    final tx = txs[index];
+                    return _transactionTile(isDark, customer, tx);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailHeader(bool isDark, _WebUdharCustomer customer) {
+    final isPay = customer.balance < 0;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 30,
+            backgroundColor: (isPay ? const Color(0xFFFFA726) : const Color(0xFF20C997)).withOpacity(0.16),
+            child: Text(
+              customer.name.isNotEmpty ? customer.name[0].toUpperCase() : 'U',
+              style: TextStyle(color: isPay ? const Color(0xFFFFA726) : const Color(0xFF20C997), fontSize: 22, fontWeight: FontWeight.w900),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(customer.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 20, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 4),
+                Text(customer.phone.isEmpty ? 'No mobile number' : customer.phone, style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+          _headerAction(Icons.chat_rounded, const Color(0xFF25D366), () => _sendWhatsAppReminder(customer)),
+          const SizedBox(width: 10),
+          _headerAction(Icons.add_rounded, const Color(0xFF6C4DFF), () => _openAddTransactionDialog(customer)),
+          const SizedBox(width: 10),
+          _headerAction(Icons.edit_rounded, const Color(0xFF3278FF), () => _openEditCustomerDialog(customer)),
+          const SizedBox(width: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: (isPay ? const Color(0xFFFFA726) : const Color(0xFF20C997)).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              '${isPay ? 'Pay' : 'Receive'} ${_money(customer.balance)}',
+              style: TextStyle(color: isPay ? const Color(0xFFFFA726) : const Color(0xFF20C997), fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerAction(IconData icon, Color color, VoidCallback onTap) {
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: FloatingActionButton(
+        heroTag: 'web_udhar_${icon.codePoint}',
+        elevation: 0,
+        backgroundColor: color,
+        onPressed: onTap,
+        child: Icon(icon, color: Colors.white, size: 21),
+      ),
+    );
+  }
+
+  Widget _transactionTile(bool isDark, _WebUdharCustomer customer, _WebUdharTransaction tx) {
+    final given = tx.type == 'given';
+    final color = given ? const Color(0xFF20C997) : const Color(0xFFFFA726);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Dismissible(
+        key: ValueKey('web_udhar_tx_${customer.id}_${tx.id}'),
+        direction: DismissDirection.endToStart,
+        confirmDismiss: (_) async {
+          await _deleteTransaction(customer: customer, transaction: tx);
+          return false;
+        },
+        background: _deleteBackground(),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => _openEditTransactionDialog(customer, tx),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white.withOpacity(0.06) : const Color(0xFFF7F8FC),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: isDark ? Colors.white10 : Colors.black.withOpacity(0.04)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(color: color.withOpacity(0.14), borderRadius: BorderRadius.circular(15)),
+                  child: Icon(given ? Icons.south_west_rounded : Icons.north_east_rounded, color: color),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(given ? 'You received' : 'You paid', style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 3),
+                      Text(tx.note.isEmpty ? _dateText(tx.createdAt) : '${tx.note} • ${_dateText(tx.createdAt)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 12, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+                Text(_money(tx.amount), style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.w900)),
+                const SizedBox(width: 10),
+                Icon(Icons.edit_rounded, size: 18, color: isDark ? Colors.white38 : Colors.black38),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _deleteBackground() {
+    return Container(
+      alignment: Alignment.centerRight,
+      padding: const EdgeInsets.only(right: 22),
+      decoration: BoxDecoration(
+        color: Colors.redAccent,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Icon(Icons.delete_rounded, color: Colors.white),
+    );
+  }
+
+  Widget _emptyDetail(bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0B1020) : Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: isDark ? Colors.white10 : Colors.black.withOpacity(0.05)),
+      ),
+      child: _emptyText(isDark, 'Select or add a person to view udhar details'),
+    );
+  }
+
+  Widget _emptyText(bool isDark, String text) {
+    return Center(
+      child: Text(
+        text,
+        style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontWeight: FontWeight.w800),
+      ),
+    );
+  }
+
+  Widget _roundIconButton({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return SizedBox(
+      width: 46,
+      height: 46,
+      child: FloatingActionButton(
+        heroTag: 'web_udhar_main_${icon.codePoint}',
+        backgroundColor: color,
+        elevation: 0,
+        onPressed: onTap,
+        child: Icon(icon, color: Colors.white),
+      ),
+    );
+  }
+
+  Future<void> _openAddCustomerTransactionDialog() async {
+    final nameController = TextEditingController();
+    final phoneController = TextEditingController();
+    final amountController = TextEditingController();
+    final noteController = TextEditingController();
+    String type = 'given';
+
+    await _showUdharTransactionDialog(
+      title: 'Add Udhar Transaction',
+      nameController: nameController,
+      phoneController: phoneController,
+      amountController: amountController,
+      noteController: noteController,
+      initialType: type,
+      showPersonFields: true,
+      onSave: (selectedType) async {
+        final amount = double.tryParse(amountController.text.trim()) ?? 0;
+        await _addCustomerTransaction(
+          name: nameController.text,
+          phone: phoneController.text,
+          type: selectedType,
+          amount: amount,
+          note: noteController.text,
+        );
+      },
+    );
+  }
+
+  Future<void> _openAddTransactionDialog(_WebUdharCustomer customer) async {
+    final amountController = TextEditingController();
+    final noteController = TextEditingController();
+
+    await _showUdharTransactionDialog(
+      title: 'Add Transaction',
+      amountController: amountController,
+      noteController: noteController,
+      initialType: 'given',
+      showPersonFields: false,
+      onSave: (selectedType) async {
+        final amount = double.tryParse(amountController.text.trim()) ?? 0;
+        await _addTransactionToCustomer(
+          customer: customer,
+          type: selectedType,
+          amount: amount,
+          note: noteController.text,
+        );
+      },
+    );
+  }
+
+  Future<void> _openEditTransactionDialog(_WebUdharCustomer customer, _WebUdharTransaction transaction) async {
+    final amountController = TextEditingController(text: transaction.amount.toStringAsFixed(0));
+    final noteController = TextEditingController(text: transaction.note);
+
+    await _showUdharTransactionDialog(
+      title: 'Edit Transaction',
+      amountController: amountController,
+      noteController: noteController,
+      initialType: transaction.type,
+      showPersonFields: false,
+      onSave: (selectedType) async {
+        final amount = double.tryParse(amountController.text.trim()) ?? 0;
+        await _updateTransaction(
+          customer: customer,
+          transaction: transaction,
+          newType: selectedType,
+          newAmount: amount,
+          note: noteController.text,
+        );
+      },
+    );
+  }
+
+  Future<void> _showUdharTransactionDialog({
+    required String title,
+    TextEditingController? nameController,
+    TextEditingController? phoneController,
+    required TextEditingController amountController,
+    required TextEditingController noteController,
+    required String initialType,
+    required bool showPersonFields,
+    required Future<void> Function(String selectedType) onSave,
+  }) async {
+    String selectedType = initialType;
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        final isDark = widget.isDark;
+        final panel = isDark ? const Color(0xFF121827) : Colors.white;
+        final field = isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFF4F6FB);
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: Container(
+                width: 430,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: panel,
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 34, offset: const Offset(0, 14))],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: Text(title, style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 20, fontWeight: FontWeight.w900))),
+                        IconButton(onPressed: () => Navigator.pop(context), icon: Icon(Icons.close_rounded, color: isDark ? Colors.white54 : Colors.black45)),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    if (showPersonFields) ...[
+                      _dialogField(nameController!, 'Person name', Icons.person_rounded, field),
+                      const SizedBox(height: 12),
+                      _dialogField(phoneController!, 'Mobile number', Icons.phone_rounded, field, keyboardType: TextInputType.phone),
+                      const SizedBox(height: 12),
+                    ],
+                    Row(
+                      children: [
+                        Expanded(child: _typeButton('given', 'You received', Icons.south_west_rounded, selectedType, (v) => setDialogState(() => selectedType = v))),
+                        const SizedBox(width: 10),
+                        Expanded(child: _typeButton('taken', 'You paid', Icons.north_east_rounded, selectedType, (v) => setDialogState(() => selectedType = v))),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _dialogField(amountController, 'Amount', Icons.currency_rupee_rounded, field, keyboardType: const TextInputType.numberWithOptions(decimal: true)),
+                    const SizedBox(height: 12),
+                    _dialogField(noteController, 'Note', Icons.notes_rounded, field),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6C4DFF),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        onPressed: () async {
+                          await onSave(selectedType);
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                        child: const Text('Save Changes', style: TextStyle(fontWeight: FontWeight.w900)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _typeButton(String value, String label, IconData icon, String selected, ValueChanged<String> onTap) {
+    final active = selected == value;
+    final color = value == 'given' ? const Color(0xFF20C997) : const Color(0xFFFFA726);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => onTap(value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+        decoration: BoxDecoration(
+          color: active ? color.withOpacity(0.16) : Colors.white.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: active ? color : Colors.white10),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 17, color: active ? color : null),
+            const SizedBox(width: 7),
+            Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(color: active ? color : null, fontWeight: FontWeight.w900, fontSize: 12))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dialogField(
+    TextEditingController controller,
+    String hint,
+    IconData icon,
+    Color fill, {
+    TextInputType? keyboardType,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      style: const TextStyle(fontWeight: FontWeight.w800),
+      decoration: InputDecoration(
+        prefixIcon: Icon(icon, size: 19),
+        hintText: hint,
+        filled: true,
+        fillColor: fill,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      ),
+    );
+  }
+
+  Future<void> _openEditCustomerDialog(_WebUdharCustomer customer) async {
+    final nameController = TextEditingController(text: customer.name);
+    final phoneController = TextEditingController(text: customer.phone);
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        final isDark = widget.isDark;
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            width: 420,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF121827) : Colors.white,
+              borderRadius: BorderRadius.circular(26),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.16), blurRadius: 30, offset: const Offset(0, 12))],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: Text('Edit Person', style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 20, fontWeight: FontWeight.w900))),
+                    IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _dialogField(nameController, 'Person name', Icons.person_rounded, isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFF4F6FB)),
+                const SizedBox(height: 12),
+                _dialogField(phoneController, 'Mobile number', Icons.phone_rounded, isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFF4F6FB), keyboardType: TextInputType.phone),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6C4DFF), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                    onPressed: () async {
+                      await _updateCustomer(customer: customer, name: nameController.text, phone: phoneController.text);
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                    child: const Text('Save Changes', style: TextStyle(fontWeight: FontWeight.w900)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+
 class _Sidebar extends StatelessWidget {
   final bool isDark;
   final String userName;
@@ -2458,6 +3481,7 @@ class _Sidebar extends StatelessWidget {
     final items = [
       (Icons.dashboard_rounded, 'Dashboard'),
       (Icons.receipt_long_rounded, 'Transactions'),
+      (Icons.menu_book_rounded, 'Udhar Book'),
       (Icons.category_rounded, 'Categories'),
       (Icons.pie_chart_rounded, 'Reports'),
       (Icons.notifications_rounded, 'Reminders'),

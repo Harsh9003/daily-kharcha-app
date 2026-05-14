@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -40,6 +41,8 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   await NotificationService.init();
 
@@ -552,6 +555,7 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
 
     currentUser = FirebaseAuth.instance.currentUser;
+    NotificationService.syncFcmTokenForCurrentUser();
     loadData();
     _listenForAdminNotifications();
   }
@@ -1358,7 +1362,7 @@ class _MainScreenState extends State<MainScreen> {
                     const SizedBox(height: 6),
 
                     const Text(
-                      "Deleted transactions 5 days tak yaha rahengi. Uske baad permanent delete ho jayengi.",
+                      "Deleted transactions after 5 days automatic.",
                       style: TextStyle(
                         color: Colors.white70,
                         fontSize: 13,

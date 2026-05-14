@@ -58,17 +58,52 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
       return;
     }
 
+    final firestore = FirebaseFirestore.instance;
+    final notificationRef = firestore.collection('notifications').doc();
+    final pushQueueRef = firestore.collection('notification_push_queue').doc();
     final wasScheduled = isScheduled;
+    final scheduledTimestamp = wasScheduled ? Timestamp.fromDate(scheduledAt!) : null;
+    final targetUserId = targetType == "single" ? selectedUserId : null;
 
-    await FirebaseFirestore.instance.collection('notifications').add({
+    final notificationData = {
       'title': title,
       'body': body,
       'targetType': targetType,
-      'targetUserId': targetType == "single" ? selectedUserId : null,
+      'targetUserId': targetUserId,
       'createdAt': FieldValue.serverTimestamp(),
-      'scheduledAt': isScheduled ? Timestamp.fromDate(scheduledAt!) : null,
-      'status': isScheduled ? 'scheduled' : 'created',
-    });
+      'scheduledAt': scheduledTimestamp,
+      'status': wasScheduled ? 'scheduled' : 'created',
+
+      // FCM delivery fields. A Firebase Cloud Function should watch this
+      // notification or the notification_push_queue document and send the
+      // actual push notification to saved user FCM tokens.
+      'pushEnabled': true,
+      'pushStatus': wasScheduled ? 'scheduled' : 'pending',
+      'pushRequestedAt': FieldValue.serverTimestamp(),
+    };
+
+    final pushQueueData = {
+      'notificationId': notificationRef.id,
+      'title': title,
+      'body': body,
+      'targetType': targetType,
+      'targetUserId': targetUserId,
+      'createdAt': FieldValue.serverTimestamp(),
+      'scheduledAt': scheduledTimestamp,
+      'status': wasScheduled ? 'scheduled' : 'pending',
+      'source': 'admin_panel',
+      'type': 'admin_notification',
+      'data': {
+        'notificationId': notificationRef.id,
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        'screen': 'notifications',
+      },
+    };
+
+    final batch = firestore.batch();
+    batch.set(notificationRef, notificationData);
+    batch.set(pushQueueRef, pushQueueData);
+    await batch.commit();
 
     titleController.clear();
     bodyController.clear();
