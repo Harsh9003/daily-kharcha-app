@@ -529,11 +529,13 @@ class _ReportsPageState extends State<ReportsPage> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (sheetContext) {
-        final panelColor = isDark ? const Color(0xFF171827) : Colors.white;
-        final titleColor = isDark ? Colors.white : const Color(0xFF24242C);
-        final subColor = isDark ? Colors.white54 : Colors.black45;
-        final tileColor = isDark ? Colors.white.withOpacity(0.06) : const Color(0xFFF7F7FA);
-        final borderColor = isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06);
+        final panelColor = Colors.white;
+        final titleColor = const Color(0xFF24242C);
+        final tileColor = const Color(0xFF5B3FD8);
+
+        final subColor = const Color(0xFF7C6BB3);
+
+        final borderColor = Colors.black.withOpacity(0.06);
 
         Future<void> exportUdharReport() async {
           Navigator.pop(sheetContext);
@@ -556,7 +558,7 @@ class _ReportsPageState extends State<ReportsPage> {
               borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.20),
+                  color: isDark ? _cardDark : Colors.grey.shade200,
                   blurRadius: 24,
                   offset: const Offset(0, -8),
                 ),
@@ -634,7 +636,7 @@ class _ReportsPageState extends State<ReportsPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 13),
         decoration: BoxDecoration(
-          color: tileColor,
+          color: const Color(0xFFF7F7FA),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: borderColor),
         ),
@@ -644,7 +646,7 @@ class _ReportsPageState extends State<ReportsPage> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: const Color(0xFF6C5CE7).withOpacity(isDark ? 0.22 : 0.10),
+                color: const Color(0xFF6C5CE7).withOpacity(0.10),
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -661,7 +663,7 @@ class _ReportsPageState extends State<ReportsPage> {
                   Text(
                     title,
                     style: TextStyle(
-                      color: isDark ? Colors.white : const Color(0xFF24242C),
+                      color: const Color(0xFF24242C),
                       fontSize: 14,
                       fontWeight: FontWeight.w900,
                     ),
@@ -670,7 +672,7 @@ class _ReportsPageState extends State<ReportsPage> {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: isDark ? Colors.white54 : Colors.black45,
+                      color: Colors.black45,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -680,7 +682,7 @@ class _ReportsPageState extends State<ReportsPage> {
             ),
             Icon(
               Icons.chevron_right_rounded,
-              color: isDark ? Colors.white38 : Colors.black38,
+              color: Colors.black45,
             ),
           ],
         ),
@@ -711,7 +713,6 @@ class _ReportsPageState extends State<ReportsPage> {
     required double willReceive,
     required double needToPay,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final receiveList = customers
         .where((e) => (e['balance'] as double) > 0)
         .toList()
@@ -727,28 +728,39 @@ class _ReportsPageState extends State<ReportsPage> {
     final settledCount = customers
         .where((e) => (e['balance'] as double) == 0)
         .length;
+
     final activeCount = customers.length - settledCount;
+
     final netBalance = willReceive - needToPay;
-    final highestReceive = receiveList.isNotEmpty ? receiveList.first : null;
-    final highestPay = payList.isNotEmpty ? payList.first : null;
+
+    final highestReceive = receiveList.isNotEmpty
+        ? receiveList.first
+        : null;
+
+    final highestPay = payList.isNotEmpty
+        ? payList.first
+        : null;
 
     showDialog(
       context: context,
       builder: (_) {
         return Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
           backgroundColor: Colors.transparent,
           child: Container(
             constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.86,
+              maxHeight:
+                  MediaQuery.of(context).size.height * 0.86,
             ),
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+            padding:
+                const EdgeInsets.fromLTRB(18, 16, 18, 18),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF111322) : Colors.white,
+              color: Colors.white,
               borderRadius: BorderRadius.circular(26),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(isDark ? 0.45 : 0.14),
+                  color: Colors.black.withOpacity(0.14),
                   blurRadius: 28,
                   offset: const Offset(0, 14),
                 ),
@@ -757,7 +769,8 @@ class _ReportsPageState extends State<ReportsPage> {
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
@@ -766,9 +779,13 @@ class _ReportsPageState extends State<ReportsPage> {
                         height: 42,
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
-                            colors: [Color(0xFF6C5CE7), Color(0xFF4B3F8F)],
+                            colors: [
+                              Color(0xFF6C5CE7),
+                              Color(0xFF4B3F8F),
+                            ],
                           ),
-                          borderRadius: BorderRadius.circular(15),
+                          borderRadius:
+                              BorderRadius.circular(15),
                         ),
                         child: const Icon(
                           Icons.auto_awesome_rounded,
@@ -779,21 +796,22 @@ class _ReportsPageState extends State<ReportsPage> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: const [
                             Text(
                               "Udhar Book Insights",
                               style: TextStyle(
-                                color: isDark ? Colors.white : const Color(0xFF151526),
+                                color: Color(0xFF24242C),
                                 fontSize: 18,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
-                            const SizedBox(height: 2),
+                            SizedBox(height: 2),
                             Text(
                               "Smart summary of pending balances",
                               style: TextStyle(
-                                color: isDark ? Colors.white54 : Colors.black45,
+                                color: Colors.black54,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -807,75 +825,92 @@ class _ReportsPageState extends State<ReportsPage> {
                           width: 34,
                           height: 34,
                           decoration: BoxDecoration(
-                            color: isDark
-                                ? Colors.white.withOpacity(0.07)
-                                : Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(12),
+                            color: const Color(0xFF24242C),
+                            borderRadius:
+                                BorderRadius.circular(12),
                           ),
-                          child: Icon(
+                          child: const Icon(
                             Icons.close_rounded,
-                            color: isDark ? Colors.white70 : Colors.black54,
+                            color: Colors.white,
                             size: 19,
                           ),
                         ),
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 16),
+
                   Row(
                     children: [
                       Expanded(
                         child: _udharInsightTile(
-                          isDark: isDark,
+                          isDark: false,
                           title: "Receive",
-                          value: "₹ ${willReceive.toStringAsFixed(0)}",
+                          value:
+                              "₹ ${willReceive.toStringAsFixed(0)}",
                           icon: Icons.south_west_rounded,
-                          color: Colors.greenAccent,
+                          color: Colors.green,
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: _udharInsightTile(
-                          isDark: isDark,
+                          isDark: false,
                           title: "Pay",
-                          value: "₹ ${needToPay.toStringAsFixed(0)}",
+                          value:
+                              "₹ ${needToPay.toStringAsFixed(0)}",
                           icon: Icons.north_east_rounded,
-                          color: Colors.orangeAccent,
+                          color: Colors.orange,
                         ),
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 10),
+
                   _udharInsightTile(
-                    isDark: isDark,
-                    title: netBalance >= 0 ? "Net Positive" : "Net Payable",
-                    value: "₹ ${netBalance.abs().toStringAsFixed(0)}",
-                    icon: Icons.account_balance_wallet_rounded,
-                    color: netBalance >= 0 ? Colors.greenAccent : Colors.orangeAccent,
+                    isDark: false,
+                    title: netBalance >= 0
+                        ? "Net Positive"
+                        : "Net Payable",
+                    value:
+                        "₹ ${netBalance.abs().toStringAsFixed(0)}",
+                    icon:
+                        Icons.account_balance_wallet_rounded,
+                    color: netBalance >= 0
+                        ? Colors.green
+                        : Colors.orange,
                     fullWidth: true,
                   ),
+
                   const SizedBox(height: 14),
+
                   _insightPersonRow(
-                    isDark: isDark,
+                    isDark: false,
                     title: "Highest Receivable",
                     person: highestReceive,
                     emptyText: "No pending receiving",
-                    color: Colors.greenAccent,
+                    color: Colors.green,
                   ),
+
                   const SizedBox(height: 8),
+
                   _insightPersonRow(
-                    isDark: isDark,
+                    isDark: false,
                     title: "Highest Payable",
                     person: highestPay,
                     emptyText: "No pending payment",
-                    color: Colors.orangeAccent,
+                    color: Colors.orange,
                   ),
+
                   const SizedBox(height: 14),
+
                   Row(
                     children: [
                       Expanded(
                         child: _smallInsightStat(
-                          isDark: isDark,
+                          isDark: false,
                           label: "Active People",
                           value: "$activeCount",
                         ),
@@ -883,7 +918,7 @@ class _ReportsPageState extends State<ReportsPage> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: _smallInsightStat(
-                          isDark: isDark,
+                          isDark: false,
                           label: "Settled",
                           value: "$settledCount",
                         ),
@@ -898,7 +933,6 @@ class _ReportsPageState extends State<ReportsPage> {
       },
     );
   }
-
   Widget _udharInsightTile({
     required bool isDark,
     required String title,

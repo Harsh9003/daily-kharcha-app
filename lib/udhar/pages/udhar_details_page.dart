@@ -167,7 +167,15 @@ class UdharDetailsPage extends StatelessWidget {
                     return const Center(child: CircularProgressIndicator());
                   }
 
-                  final txDocs = snapshot.data!.docs;
+                  final txDocs = snapshot.data!.docs.where((doc) {
+                    final data = doc.data();
+                    return data['isDeleted'] != true;
+                  }).toList()
+                    ..sort((a, b) {
+                      final aTx = UdharTransactionModel.fromDoc(a);
+                      final bTx = UdharTransactionModel.fromDoc(b);
+                      return bTx.selectedDate.toDate().compareTo(aTx.selectedDate.toDate());
+                    });
 
                   if (txDocs.isEmpty) {
                     return Padding(
@@ -189,7 +197,7 @@ class UdharDetailsPage extends StatelessWidget {
                       final tx = UdharTransactionModel.fromDoc(doc);
                       final txData = doc.data();
                       final currentPaymentMode = (txData['paymentMode'] ?? 'Cash').toString();
-                      final dt = tx.createdAt.toDate();
+                      final dt = tx.selectedDate.toDate();
                       final color = tx.isGiven ? Colors.greenAccent : Colors.orangeAccent;
 
                       return Dismissible(
@@ -312,12 +320,11 @@ class UdharDetailsPage extends StatelessWidget {
       final snapshot = await UdharService.customersRef()
           .doc(liveCustomer.id)
           .collection('transactions')
-          .orderBy('createdAt', descending: true)
           .get();
 
       final transactions = snapshot.docs.map((doc) {
         final data = doc.data();
-        final createdAt = data['createdAt'];
+        final createdAt = data['selectedDate'] ?? data['createdAt'];
 
         DateTime date;
         if (createdAt is Timestamp) {
@@ -364,7 +371,7 @@ class UdharDetailsPage extends StatelessWidget {
 
     String selectedType = tx.type;
     String selectedPaymentMode = currentPaymentMode.isNotEmpty ? currentPaymentMode : "Cash";
-    DateTime selectedDate = tx.createdAt.toDate();
+    DateTime selectedDate = tx.selectedDate.toDate();
     bool isSaving = false;
 
     final Color panelColor = isDark ? const Color(0xFF111322) : Colors.white;
@@ -817,6 +824,7 @@ class UdharDetailsPage extends StatelessWidget {
                                                   newType: selectedType,
                                                   newAmount: amount,
                                                   note: noteController.text,
+                                                  transactionDate: selectedDate,
                                                 );
 
                                                 await UdharService.customersRef()
@@ -1023,8 +1031,8 @@ class UdharDetailsPage extends StatelessWidget {
     final amount = liveCustomer.balance.abs().toStringAsFixed(0);
 
     final message = liveCustomer.balance < 0
-        ? "Hi ${liveCustomer.name}, reminder regarding ₹$amount pending payment."
-        : "Hi ${liveCustomer.name}, gentle reminder for ₹$amount pending amount.";
+    ? "Hello ${liveCustomer.name}, this is a friendly reminder that ₹$amount is pending for payment. Kindly settle it at your convenience."
+    : "Hello ${liveCustomer.name}, this is a friendly reminder regarding ₹$amount pending to be received. Thank you.";
 
     final uri = Uri.parse(
       "https://wa.me/$phone?text=${Uri.encodeComponent(message)}",

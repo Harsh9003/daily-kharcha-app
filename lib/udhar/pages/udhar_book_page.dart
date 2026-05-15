@@ -119,159 +119,175 @@ class _UdharBookPageState extends State<UdharBookPage> {
               );
             }
 
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 86),
-              children: [
-
-                /// HEADER
-                Row(
-                  children: [
-                    Expanded(
-                      child: showSearch
-                          ? TextField(
-                              controller: searchController,
-                              focusNode: searchFocusNode,
-                              autofocus: true,
-                              onChanged: (_) => setState(() {}),
-                              style: TextStyle(
-                                color: isDark
-                                    ? Colors.white
-                                    : Colors.black87,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 14,
-                              ),
-                              decoration: InputDecoration(
-                                hintText: "Search person...",
-                                hintStyle: TextStyle(
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+              child: Column(
+                children: [
+                  /// FIXED HEADER
+                  Row(
+                    children: [
+                      Expanded(
+                        child: showSearch
+                            ? TextField(
+                                controller: searchController,
+                                focusNode: searchFocusNode,
+                                autofocus: true,
+                                onChanged: (_) => setState(() {}),
+                                style: TextStyle(
                                   color: isDark
-                                      ? Colors.white38
-                                      : Colors.black38,
+                                      ? Colors.white
+                                      : Colors.black87,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
                                 ),
-                                filled: true,
-                                fillColor: isDark
-                                    ? Colors.white10
-                                    : Colors.white,
-                                contentPadding:
-                                    const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 11,
+                                decoration: InputDecoration(
+                                  hintText: "Search person...",
+                                  hintStyle: TextStyle(
+                                    color: isDark
+                                        ? Colors.white38
+                                        : Colors.black38,
+                                  ),
+                                  filled: true,
+                                  fillColor: isDark
+                                      ? Colors.white10
+                                      : Colors.white,
+                                  contentPadding:
+                                      const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 11,
+                                  ),
+                                  border: OutlineInputBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(15),
+                                    borderSide: BorderSide.none,
+                                  ),
                                 ),
-                                border: OutlineInputBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(15),
-                                  borderSide: BorderSide.none,
+                              )
+                            : Text(
+                                "Udhar Book",
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900,
+                                  color: isDark
+                                      ? Colors.white
+                                      : const Color(0xFF1E1E2C),
                                 ),
                               ),
-                            )
-                          : Text(
-                              "Udhar Book",
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w900,
-                                color: isDark
-                                    ? Colors.white
-                                    : const Color(0xFF1E1E2C),
-                              ),
-                            ),
-                    ),
-
-                    const SizedBox(width: 8),
-
-                    _topButton(
-                      showSearch
-                          ? Icons.close_rounded
-                          : Icons.search_rounded,
-                      () {
-                        setState(() {
-                          showSearch = !showSearch;
-
-                          if (!showSearch) {
-                            searchController.clear();
-                            searchFocusNode.unfocus();
-                          }
-                        });
-                      },
-                    ),
-
-                    const SizedBox(width: 7),
-
-                    _topButton(
-                      Icons.tune_rounded,
-                      _openSortSheet,
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 10),
-
-                /// SUMMARY
-                UdharSummaryCard(
-                  isDark: isDark,
-                  customers: customers,
-                ),
-
-                const SizedBox(height: 10),
-
-                /// FILTERS
-                _filterBar(),
-
-                const SizedBox(height: 10),
-
-                /// LIST
-                if (!snapshot.hasData)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.only(top: 40),
-                      child: CircularProgressIndicator(),
-                    ),
-                  )
-                else if (filtered.isEmpty)
-                  _emptyBox()
-                else
-                  ...filtered.map(
-                    (customer) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Dismissible(
-                        key: ValueKey("customer_${customer.id}"),
-                        direction: DismissDirection.endToStart,
-                        background: Container(
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.only(right: 18),
-                          decoration: BoxDecoration(
-                            color: Colors.redAccent,
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: const Icon(
-                            Icons.delete_rounded,
-                            color: Colors.white,
-                            size: 22,
-                          ),
-                        ),
-                        confirmDismiss: (_) async {
-                          await UdharService.deleteCustomer(customer.id);
-                          return false;
-                        },
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.translucent,
-                          onTapDown: (details) {
-                            final width =
-                                MediaQuery.of(context).size.width;
-
-                            if (details.localPosition.dx < width * 0.55) {
-                              _openEditCustomerDialog(customer);
-                            }
-                          },
-                          child: UdharCard(
-                            isDark: isDark,
-                            customer: customer,
-                          ),
-                        ),
                       ),
-                    ),
+
+                      const SizedBox(width: 8),
+
+                      _topButton(
+                        showSearch
+                            ? Icons.close_rounded
+                            : Icons.search_rounded,
+                        () {
+                          setState(() {
+                            showSearch = !showSearch;
+
+                            if (!showSearch) {
+                              searchController.clear();
+                              searchFocusNode.unfocus();
+                            }
+                          });
+                        },
+                      ),
+
+                      const SizedBox(width: 7),
+
+                      _topButton(
+                        Icons.tune_rounded,
+                        _openSortSheet,
+                      ),
+                    ],
                   ),
-              ],
-            );
-          },
+
+                  const SizedBox(height: 10),
+
+                  /// FIXED SUMMARY
+                  UdharSummaryCard(
+                    isDark: isDark,
+                    customers: customers,
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  /// FIXED FILTERS
+                  _filterBar(),
+
+                  const SizedBox(height: 10),
+
+                  /// ONLY CUSTOMER LIST WILL SCROLL
+                  Expanded(
+                    child: !snapshot.hasData
+                        ? const Center(
+                            child: CircularProgressIndicator(),
+                          )
+                        : filtered.isEmpty
+                            ? _emptyBox()
+                            : ListView.separated(
+                                padding:
+                                    const EdgeInsets.only(bottom: 86),
+                                keyboardDismissBehavior:
+                                    ScrollViewKeyboardDismissBehavior.onDrag,
+                                itemCount: filtered.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 8),
+                                itemBuilder: (context, index) {
+                                  final customer = filtered[index];
+
+                                  return Dismissible(
+                                    key: ValueKey("customer_${customer.id}"),
+                                    direction: DismissDirection.endToStart,
+                                    background: Container(
+                                      alignment: Alignment.centerRight,
+                                      padding:
+                                          const EdgeInsets.only(right: 18),
+                                      decoration: BoxDecoration(
+                                        color: Colors.redAccent,
+                                        borderRadius:
+                                            BorderRadius.circular(18),
+                                      ),
+                                      child: const Icon(
+                                        Icons.delete_rounded,
+                                        color: Colors.white,
+                                        size: 22,
+                                      ),
+                                    ),
+                                    confirmDismiss: (_) async {
+                                      await UdharService.deleteCustomer(
+                                        customer.id,
+                                      );
+                                      return false;
+                                    },
+                                    child: GestureDetector(
+                                      behavior:
+                                          HitTestBehavior.translucent,
+                                      onTapDown: (details) {
+                                        final width =
+                                            MediaQuery.of(context)
+                                                .size
+                                                .width;
+
+                                        if (details.localPosition.dx <
+                                            width * 0.55) {
+                                          _openEditCustomerDialog(
+                                            customer,
+                                          );
+                                        }
+                                      },
+                                      child: UdharCard(
+                                        isDark: isDark,
+                                        customer: customer,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
+                ],
+              ),
+            );          },
         ),
       ),
     );
@@ -719,11 +735,14 @@ class _UdharBookPageState extends State<UdharBookPage> {
 
     final phoneController =
         TextEditingController(text: customer.phone);
+    DateTime selectedDate = customer.latestTransactionDate.toDate();
 
     showDialog(
       context: context,
-      builder: (_) {
-        return Dialog(
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
           backgroundColor: Colors.transparent,
           child: Container(
             padding: const EdgeInsets.all(18),
@@ -753,7 +772,7 @@ class _UdharBookPageState extends State<UdharBookPage> {
                     ),
 
                     GestureDetector(
-                      onTap: () => Navigator.pop(context),
+                      onTap: () => Navigator.pop(dialogContext),
                       child: Container(
                         width: 34,
                         height: 34,
@@ -820,6 +839,84 @@ class _UdharBookPageState extends State<UdharBookPage> {
                   ),
                 ),
 
+                const SizedBox(height: 14),
+
+                GestureDetector(
+                  onTap: () async {
+                    final pickedDate = await showDatePicker(
+                      context: dialogContext,
+                      initialDate: selectedDate,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime.now(),
+                      builder: (context, child) {
+                        final baseTheme = Theme.of(context);
+                        return Theme(
+                          data: baseTheme.copyWith(
+                            colorScheme: baseTheme.colorScheme.copyWith(
+                              primary: const Color(0xFF6C4DFF),
+                            ),
+                          ),
+                          child: child!,
+                        );
+                      },
+                    );
+
+                    if (pickedDate != null) {
+                      setDialogState(() {
+                        selectedDate = DateTime(
+                          pickedDate.year,
+                          pickedDate.month,
+                          pickedDate.day,
+                        );
+                      });
+                    }
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 15,
+                    ),
+                    decoration: BoxDecoration(
+                      color: widget.isDark
+                          ? Colors.white10
+                          : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFF6C4DFF).withOpacity(0.22),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.calendar_month_rounded,
+                          color: Color(0xFF8D6BFF),
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            "${selectedDate.day}/${selectedDate.month}/${selectedDate.year}",
+                            style: TextStyle(
+                              color: widget.isDark
+                                  ? Colors.white
+                                  : Colors.black87,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: widget.isDark
+                              ? Colors.white54
+                              : Colors.black45,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
                 const SizedBox(height: 20),
 
                 SizedBox(
@@ -842,6 +939,7 @@ class _UdharBookPageState extends State<UdharBookPage> {
                         customerId: customer.id,
                         name: nameController.text,
                         phone: phoneController.text,
+                        latestTransactionDate: selectedDate,
                       );
 
                       if (mounted) {
@@ -868,6 +966,8 @@ class _UdharBookPageState extends State<UdharBookPage> {
               ],
             ),
           ),
+        );
+          },
         );
       },
     );

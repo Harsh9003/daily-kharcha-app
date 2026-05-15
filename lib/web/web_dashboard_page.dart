@@ -1427,20 +1427,109 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final txRef = FirebaseFirestore.instance.collection('users').doc(user.uid).collection('transactions').doc(tx.originalTransactionId.isEmpty ? tx.id : tx.originalTransactionId);
-    final recycleRef = FirebaseFirestore.instance.collection('users').doc(user.uid).collection('recycleBin').doc(tx.id);
+    final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final recycleRef = userRef.collection('recycleBin').doc(tx.id);
 
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      transaction.set(txRef, {
-        'amount': tx.amount,
-        'category': tx.category,
-        'mode': tx.mode,
-        'note': tx.note,
-        'date': tx.date.toIso8601String(),
-        'restoredAt': FieldValue.serverTimestamp(),
+    if (tx.isUdharPerson) {
+      final customerId = tx.originalCustomerId.isEmpty ? tx.id.replaceFirst('udhar_person_', '') : tx.originalCustomerId;
+      final customerRef = userRef.collection('udharCustomers').doc(customerId);
+      final customerData = Map<String, dynamic>.from((tx.rawData['customerData'] as Map?) ?? tx.rawData);
+      final rawTransactions = tx.rawData['transactions'];
+
+      customerData.remove('recycleType');
+      customerData.remove('deletedType');
+      customerData.remove('deletedAt');
+      customerData.remove('autoDeleteAfter');
+      customerData.remove('originalCustomerId');
+      customerData.remove('customerData');
+      customerData.remove('transactions');
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        transaction.set(customerRef, {
+          ...customerData,
+          'name': tx.category,
+          'phone': tx.note,
+          'balance': tx.amount == 0 ? (customerData['balance'] ?? 0) : (customerData['balance'] ?? tx.amount),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'restoredAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        if (rawTransactions is List) {
+          for (final item in rawTransactions) {
+            if (item is! Map) continue;
+            final txId = (item['id'] ?? '').toString();
+            if (txId.isEmpty) continue;
+
+            final data = Map<String, dynamic>.from(item);
+            data.remove('id');
+            transaction.set(customerRef.collection('transactions').doc(txId), {
+              ...data,
+              'restoredAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          }
+        }
+
+        transaction.delete(recycleRef);
       });
-      transaction.delete(recycleRef);
-    });
+    } else if (tx.isUdharTransaction) {
+      final customerId = tx.originalCustomerId;
+      if (customerId.isEmpty) return;
+
+      final customerRef = userRef.collection('udharCustomers').doc(customerId);
+      final transactionId = tx.originalTransactionId.isEmpty ? tx.id.replaceFirst('udhar_tx_', '') : tx.originalTransactionId;
+      final transactionData = Map<String, dynamic>.from((tx.rawData['transactionData'] as Map?) ?? tx.rawData);
+      transactionData.remove('recycleType');
+      transactionData.remove('deletedType');
+      transactionData.remove('deletedAt');
+      transactionData.remove('autoDeleteAfter');
+      transactionData.remove('originalCustomerId');
+      transactionData.remove('originalTransactionId');
+      transactionData.remove('customerName');
+      transactionData.remove('transactionData');
+
+      final type = (transactionData['type'] ?? tx.rawData['type'] ?? 'given').toString();
+      final balanceEffect = type == 'given' ? tx.amount : -tx.amount;
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        transaction.set(customerRef.collection('transactions').doc(transactionId), {
+          ...transactionData,
+          'type': type,
+          'amount': tx.amount,
+          'note': tx.note,
+          'transactionDate': Timestamp.fromDate(tx.date),
+          'restoredAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        transaction.update(customerRef, {
+          'balance': FieldValue.increment(balanceEffect),
+          'latestTransactionDate': Timestamp.fromDate(tx.date),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        transaction.delete(recycleRef);
+      });
+    } else {
+      final txRef = userRef.collection('transactions').doc(tx.originalTransactionId.isEmpty ? tx.id : tx.originalTransactionId);
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        transaction.set(txRef, {
+          'amount': tx.amount,
+          'category': tx.category,
+          'mode': tx.mode,
+          'note': tx.note,
+          'date': tx.date.toIso8601String(),
+          'restoredAt': FieldValue.serverTimestamp(),
+        });
+        transaction.delete(recycleRef);
+      });
+    }
+
+    if (!mounted) return;
+    _showPremiumToast(
+      title: 'Restored successfully',
+      message: '${tx.displayTitle} has been restored.',
+      icon: Icons.restore_rounded,
+    );
   }
 
   Future<void> _permanentDeleteTransaction(RecycledTx tx) async {
@@ -1450,7 +1539,7 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
     if (!mounted) return;
     _showPremiumToast(
       title: 'Deleted permanently',
-      message: 'Transaction has been removed from Recycle Bin.',
+      message: 'Item has been removed from Recycle Bin.',
       icon: Icons.delete_forever_rounded,
     );
   }
@@ -1474,7 +1563,7 @@ class _WebDashboardPageState extends State<WebDashboardPage> {
     if (!mounted) return;
     _showPremiumToast(
       title: 'Recycle Bin cleared',
-      message: '${docs.docs.length} deleted transaction(s) removed permanently.',
+      message: '${docs.docs.length} deleted item(s) removed permanently.',
       icon: Icons.cleaning_services_rounded,
     );
   }
@@ -1909,7 +1998,9 @@ class WebTx {
 
 class RecycledTx {
   final String id;
+  final String recycleType;
   final String originalTransactionId;
+  final String originalCustomerId;
   final double amount;
   final String category;
   final String mode;
@@ -1917,10 +2008,13 @@ class RecycledTx {
   final DateTime date;
   final DateTime? deletedAt;
   final DateTime? autoDeleteAfter;
+  final Map<String, dynamic> rawData;
 
   RecycledTx({
     required this.id,
+    required this.recycleType,
     required this.originalTransactionId,
+    required this.originalCustomerId,
     required this.amount,
     required this.category,
     required this.mode,
@@ -1928,31 +2022,90 @@ class RecycledTx {
     required this.date,
     required this.deletedAt,
     required this.autoDeleteAfter,
+    required this.rawData,
   });
+
+  bool get isUdharPerson => recycleType == 'udhar_person';
+  bool get isUdharTransaction => recycleType == 'udhar_transaction';
+
+  String get displayTitle {
+    if (isUdharPerson) {
+      return category.trim().isEmpty ? 'Udhar Person' : category.trim();
+    }
+
+    if (isUdharTransaction) {
+      final cleanName = category.trim().isEmpty ? 'Udhar' : category.trim();
+      final action = mode.toLowerCase().contains('received') ? 'Received' : 'Given';
+      return '$cleanName - $action';
+    }
+
+    return category.trim().isEmpty ? 'Transaction' : category.trim();
+  }
+
+  String get displayMeta {
+    if (isUdharPerson) return note.trim().isEmpty ? 'Udhar person record' : note.trim();
+    if (isUdharTransaction) return note.trim().isEmpty ? 'Udhar transaction' : note.trim();
+    return mode;
+  }
 
   factory RecycledTx.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
+
     DateTime parseDate(dynamic raw) {
       if (raw is Timestamp) return raw.toDate();
+      if (raw is DateTime) return raw;
       return DateTime.tryParse(raw.toString()) ?? DateTime.now();
     }
 
     DateTime? parseNullableDate(dynamic raw) {
       if (raw == null) return null;
       if (raw is Timestamp) return raw.toDate();
+      if (raw is DateTime) return raw;
       return DateTime.tryParse(raw.toString());
+    }
+
+    final recycleType = (data['recycleType'] ?? data['deletedType'] ?? 'transaction').toString();
+
+    String category;
+    String mode;
+    String note;
+    DateTime date;
+    double amount;
+
+    if (recycleType == 'udhar_person') {
+      category = (data['name'] ?? data['personName'] ?? data['category'] ?? 'Udhar Person').toString();
+      mode = 'Udhar Person';
+      note = (data['phone'] ?? data['note'] ?? '').toString();
+      amount = (data['balance'] as num?)?.toDouble().abs() ?? (data['amount'] as num?)?.toDouble() ?? 0;
+      date = parseDate(data['latestTransactionDate'] ?? data['date'] ?? data['deletedAt']);
+    } else if (recycleType == 'udhar_transaction') {
+      category = (data['customerName'] ?? data['personName'] ?? data['category'] ?? 'Udhar').toString();
+      final txType = (data['type'] ?? '').toString();
+      mode = txType == 'given' ? 'Given' : 'Received';
+      note = (data['note'] ?? data['description'] ?? '').toString();
+      amount = (data['amount'] as num?)?.toDouble() ?? 0;
+      date = parseDate(data['transactionDate'] ?? data['date'] ?? data['deletedAt']);
+    } else {
+      category = (data['category'] ?? 'Other').toString();
+      mode = (data['mode'] ?? 'Cash').toString();
+      note = (data['note'] ?? data['description'] ?? '').toString();
+      amount = (data['amount'] as num?)?.toDouble() ?? 0;
+      date = parseDate(data['date']);
     }
 
     return RecycledTx(
       id: doc.id,
-      originalTransactionId: (data['originalTransactionId'] ?? doc.id).toString(),
-      amount: (data['amount'] as num?)?.toDouble() ?? 0,
-      category: (data['category'] ?? 'Other').toString(),
-      mode: (data['mode'] ?? 'Cash').toString(),
-      note: (data['note'] ?? data['description'] ?? '').toString(),
-      date: parseDate(data['date']),
+      recycleType: recycleType,
+      originalTransactionId: (data['originalTransactionId'] ?? data['transactionId'] ?? doc.id).toString(),
+      originalCustomerId: (data['originalCustomerId'] ?? data['customerId'] ?? '').toString(),
+      amount: amount,
+      category: category,
+      mode: mode,
+      note: note,
+      date: date,
       deletedAt: parseNullableDate(data['deletedAt']),
       autoDeleteAfter: parseNullableDate(data['autoDeleteAfter']),
+      rawData: data,
     );
   }
 }
@@ -2209,7 +2362,7 @@ class _RecycleBinPage extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            const Text('Deleted transactions stay here for 5 days. You can restore them or delete them permanently.'),
+            const Text('Deleted transactions and Udhar records stay here for 5 days. You can restore them or delete them permanently.'),
             const SizedBox(height: 18),
             Expanded(
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -2260,9 +2413,9 @@ class _RecycleBinPage extends StatelessWidget {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(tx.category, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                                  Text(tx.displayTitle, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                                   const SizedBox(height: 4),
-                                  Text('${_formatDate(tx.date)} • ${tx.mode} • Auto delete after $deleteAfter', maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  Text('${_formatDate(tx.date)} • ${tx.displayMeta} • Auto delete after $deleteAfter', maxLines: 1, overflow: TextOverflow.ellipsis),
                                   if (tx.note.isNotEmpty) ...[
                                     const SizedBox(height: 4),
                                     Text(tx.note, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF9CA3AF))),
@@ -2303,7 +2456,7 @@ class _RecycleBinPage extends StatelessWidget {
     final confirm = await _premiumConfirmDialog(
       context: context,
       title: 'Delete permanently?',
-      message: 'This transaction will be permanently removed and cannot be restored later.',
+      message: 'This item will be permanently removed and cannot be restored later.',
       confirmText: 'Delete',
       icon: Icons.delete_forever_rounded,
     );
@@ -2315,7 +2468,7 @@ class _RecycleBinPage extends StatelessWidget {
     final confirm = await _premiumConfirmDialog(
       context: context,
       title: 'Clear Recycle Bin?',
-      message: 'All deleted transactions in Recycle Bin will be permanently removed. This action cannot be undone.',
+      message: 'All deleted items in Recycle Bin will be permanently removed. This action cannot be undone.',
       confirmText: 'Delete All',
       icon: Icons.delete_sweep_rounded,
     );
@@ -2451,6 +2604,7 @@ class _WebUdharCustomer {
   final String phone;
   final double balance;
   final DateTime updatedAt;
+  final DateTime latestTransactionDate;
 
   const _WebUdharCustomer({
     required this.id,
@@ -2458,11 +2612,13 @@ class _WebUdharCustomer {
     required this.phone,
     required this.balance,
     required this.updatedAt,
+    required this.latestTransactionDate,
   });
 
   factory _WebUdharCustomer.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? {};
     final updated = data['updatedAt'];
+    final latestDate = data['latestTransactionDate'];
 
     return _WebUdharCustomer(
       id: doc.id,
@@ -2470,6 +2626,11 @@ class _WebUdharCustomer {
       phone: (data['phone'] ?? '').toString(),
       balance: ((data['balance'] ?? 0) as num).toDouble(),
       updatedAt: updated is Timestamp ? updated.toDate() : DateTime.fromMillisecondsSinceEpoch(0),
+      latestTransactionDate: latestDate is Timestamp
+          ? latestDate.toDate()
+          : updated is Timestamp
+              ? updated.toDate()
+              : DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
 }
@@ -2480,6 +2641,7 @@ class _WebUdharTransaction {
   final double amount;
   final String note;
   final DateTime createdAt;
+  final DateTime transactionDate;
 
   const _WebUdharTransaction({
     required this.id,
@@ -2487,11 +2649,23 @@ class _WebUdharTransaction {
     required this.amount,
     required this.note,
     required this.createdAt,
+    required this.transactionDate,
   });
 
   factory _WebUdharTransaction.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? {};
     final created = data['createdAt'];
+    final rawTransactionDate = data['transactionDate'] ?? data['date'] ?? data['createdAt'];
+
+    DateTime parsedTransactionDate;
+    if (rawTransactionDate is Timestamp) {
+      parsedTransactionDate = rawTransactionDate.toDate();
+    } else if (rawTransactionDate is DateTime) {
+      parsedTransactionDate = rawTransactionDate;
+    } else {
+      parsedTransactionDate = DateTime.tryParse(rawTransactionDate.toString()) ??
+          (created is Timestamp ? created.toDate() : DateTime.fromMillisecondsSinceEpoch(0));
+    }
 
     return _WebUdharTransaction(
       id: doc.id,
@@ -2499,6 +2673,7 @@ class _WebUdharTransaction {
       amount: ((data['amount'] ?? 0) as num).toDouble(),
       note: (data['note'] ?? '').toString(),
       createdAt: created is Timestamp ? created.toDate() : DateTime.fromMillisecondsSinceEpoch(0),
+      transactionDate: parsedTransactionDate,
     );
   }
 }
@@ -2540,6 +2715,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
     required String type,
     required double amount,
     required String note,
+    required DateTime selectedDate,
   }) async {
     final cleanName = name.trim();
     final cleanPhone = phone.trim();
@@ -2557,12 +2733,14 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
         'balance': balanceChange,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
+        'latestTransactionDate': Timestamp.fromDate(selectedDate),
       });
 
       await doc.collection('transactions').add({
         'type': type,
         'amount': amount,
         'note': note.trim(),
+        'transactionDate': Timestamp.fromDate(selectedDate),
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -2573,12 +2751,14 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
         'balance': FieldValue.increment(balanceChange),
         'phone': cleanPhone.isNotEmpty ? cleanPhone : (existing.docs.first.data()['phone'] ?? ''),
         'updatedAt': FieldValue.serverTimestamp(),
+        'latestTransactionDate': Timestamp.fromDate(selectedDate),
       });
 
       await doc.collection('transactions').add({
         'type': type,
         'amount': amount,
         'note': note.trim(),
+        'transactionDate': Timestamp.fromDate(selectedDate),
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -2591,6 +2771,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
     required String type,
     required double amount,
     required String note,
+    required DateTime selectedDate,
   }) async {
     if (amount <= 0) return;
 
@@ -2600,12 +2781,14 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
     await doc.update({
       'balance': FieldValue.increment(balanceChange),
       'updatedAt': FieldValue.serverTimestamp(),
+      'latestTransactionDate': Timestamp.fromDate(selectedDate),
     });
 
     await doc.collection('transactions').add({
       'type': type,
       'amount': amount,
       'note': note.trim(),
+      'transactionDate': Timestamp.fromDate(selectedDate),
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -2614,6 +2797,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
     required _WebUdharCustomer customer,
     required String name,
     required String phone,
+    required DateTime selectedDate,
   }) async {
     final cleanName = name.trim();
     if (cleanName.isEmpty) return;
@@ -2622,24 +2806,70 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
       'name': cleanName,
       'nameLower': cleanName.toLowerCase(),
       'phone': phone.trim(),
+      'latestTransactionDate': Timestamp.fromDate(selectedDate),
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
   Future<void> _deleteCustomer(_WebUdharCustomer customer) async {
-    final tx = await _customersRef.doc(customer.id).collection('transactions').get();
+    final customerRef = _customersRef.doc(customer.id);
+    final customerSnapshot = await customerRef.get();
+    final transactionsSnapshot = await customerRef.collection('transactions').get();
+
+    final customerData = customerSnapshot.data() ?? <String, dynamic>{
+      'name': customer.name,
+      'nameLower': customer.name.toLowerCase(),
+      'phone': customer.phone,
+      'balance': customer.balance,
+      'latestTransactionDate': Timestamp.fromDate(customer.latestTransactionDate),
+    };
+
+    final transactionsData = transactionsSnapshot.docs.map((doc) {
+      return {
+        'id': doc.id,
+        ...doc.data(),
+      };
+    }).toList();
+
+    final recycleRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(_uid)
+        .collection('recycleBin')
+        .doc('udhar_person_${customer.id}');
+
     final batch = FirebaseFirestore.instance.batch();
 
-    for (final doc in tx.docs) {
+    batch.set(recycleRef, {
+      'recycleType': 'udhar_person',
+      'originalCustomerId': customer.id,
+      'name': customer.name,
+      'personName': customer.name,
+      'phone': customer.phone,
+      'balance': customer.balance,
+      'amount': customer.balance.abs(),
+      'category': customer.name,
+      'mode': 'Udhar Person',
+      'note': customer.phone,
+      'date': Timestamp.fromDate(customer.latestTransactionDate),
+      'latestTransactionDate': Timestamp.fromDate(customer.latestTransactionDate),
+      'customerData': customerData,
+      'transactions': transactionsData,
+      'deletedAt': FieldValue.serverTimestamp(),
+      'autoDeleteAfter': Timestamp.fromDate(DateTime.now().add(const Duration(days: 5))),
+    });
+
+    for (final doc in transactionsSnapshot.docs) {
       batch.delete(doc.reference);
     }
 
-    batch.delete(_customersRef.doc(customer.id));
+    batch.delete(customerRef);
     await batch.commit();
 
     if (selectedCustomerId == customer.id && mounted) {
       setState(() => selectedCustomerId = null);
     }
+
+    _showSnack('${customer.name} moved to Recycle Bin.');
   }
 
   Future<void> _deleteTransaction({
@@ -2648,13 +2878,50 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
   }) async {
     final reverseBalance = transaction.type == 'given' ? -transaction.amount : transaction.amount;
     final customerDoc = _customersRef.doc(customer.id);
+    final transactionRef = customerDoc.collection('transactions').doc(transaction.id);
+    final transactionSnapshot = await transactionRef.get();
+    final transactionData = transactionSnapshot.data() ?? <String, dynamic>{
+      'type': transaction.type,
+      'amount': transaction.amount,
+      'note': transaction.note,
+      'transactionDate': Timestamp.fromDate(transaction.transactionDate),
+      'createdAt': Timestamp.fromDate(transaction.createdAt),
+    };
 
-    await customerDoc.update({
-      'balance': FieldValue.increment(reverseBalance),
-      'updatedAt': FieldValue.serverTimestamp(),
+    final recycleRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(_uid)
+        .collection('recycleBin')
+        .doc('udhar_tx_${customer.id}_${transaction.id}');
+
+    await FirebaseFirestore.instance.runTransaction((firestoreTx) async {
+      firestoreTx.set(recycleRef, {
+        'recycleType': 'udhar_transaction',
+        'originalCustomerId': customer.id,
+        'originalTransactionId': transaction.id,
+        'customerName': customer.name,
+        'personName': customer.name,
+        'category': customer.name,
+        'type': transaction.type,
+        'mode': transaction.type == 'given' ? 'Given' : 'Received',
+        'amount': transaction.amount,
+        'note': transaction.note,
+        'date': Timestamp.fromDate(transaction.transactionDate),
+        'transactionDate': Timestamp.fromDate(transaction.transactionDate),
+        'transactionData': transactionData,
+        'deletedAt': FieldValue.serverTimestamp(),
+        'autoDeleteAfter': Timestamp.fromDate(DateTime.now().add(const Duration(days: 5))),
+      });
+
+      firestoreTx.update(customerDoc, {
+        'balance': FieldValue.increment(reverseBalance),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      firestoreTx.delete(transactionRef);
     });
 
-    await customerDoc.collection('transactions').doc(transaction.id).delete();
+    _showSnack('${customer.name} - ${transaction.type == 'given' ? 'Given' : 'Received'} moved to Recycle Bin.');
   }
 
   Future<void> _updateTransaction({
@@ -2663,6 +2930,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
     required String newType,
     required double newAmount,
     required String note,
+    required DateTime selectedDate,
   }) async {
     if (newAmount <= 0) return;
 
@@ -2674,6 +2942,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
 
     await customerDoc.update({
       'balance': FieldValue.increment(difference),
+      'latestTransactionDate': Timestamp.fromDate(selectedDate),
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
@@ -2681,6 +2950,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
       'type': newType,
       'amount': newAmount,
       'note': note.trim(),
+      'transactionDate': Timestamp.fromDate(selectedDate),
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
@@ -2960,7 +3230,12 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
                             children: [
                               Text(customer.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14, fontWeight: FontWeight.w900)),
                               const SizedBox(height: 3),
-                              Text(customer.phone.isEmpty ? 'No mobile number' : customer.phone, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 11, fontWeight: FontWeight.w700)),
+                              Text(
+                                '${customer.phone.isEmpty ? 'No mobile number' : customer.phone} • ${_dateText(customer.latestTransactionDate)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 11, fontWeight: FontWeight.w700),
+                              ),
                             ],
                           ),
                         ),
@@ -3007,7 +3282,10 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _transactionsStream(customer.id),
               builder: (context, snapshot) {
-                final txs = snapshot.hasData ? snapshot.data!.docs.map(_WebUdharTransaction.fromDoc).toList() : <_WebUdharTransaction>[];
+                final txs = snapshot.hasData
+                    ? (snapshot.data!.docs.map(_WebUdharTransaction.fromDoc).toList()
+                      ..sort((a, b) => b.transactionDate.compareTo(a.transactionDate)))
+                    : <_WebUdharTransaction>[];
 
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
@@ -3055,7 +3333,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
               children: [
                 Text(customer.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 20, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 4),
-                Text(customer.phone.isEmpty ? 'No mobile number' : customer.phone, style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontWeight: FontWeight.w700)),
+                Text('${customer.phone.isEmpty ? 'No mobile number' : customer.phone} • ${_dateText(customer.latestTransactionDate)}', style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontWeight: FontWeight.w700)),
               ],
             ),
           ),
@@ -3134,7 +3412,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
                     children: [
                       Text(given ? 'You received' : 'You paid', style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 3),
-                      Text(tx.note.isEmpty ? _dateText(tx.createdAt) : '${tx.note} • ${_dateText(tx.createdAt)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 12, fontWeight: FontWeight.w700)),
+                      Text(tx.note.isEmpty ? _dateText(tx.transactionDate) : '${tx.note} • ${_dateText(tx.transactionDate)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 12, fontWeight: FontWeight.w700)),
                     ],
                   ),
                 ),
@@ -3214,7 +3492,8 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
       noteController: noteController,
       initialType: type,
       showPersonFields: true,
-      onSave: (selectedType) async {
+      initialSelectedDate: DateTime.now(),
+      onSave: (selectedType, selectedDate) async {
         final amount = double.tryParse(amountController.text.trim()) ?? 0;
         await _addCustomerTransaction(
           name: nameController.text,
@@ -3222,6 +3501,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
           type: selectedType,
           amount: amount,
           note: noteController.text,
+          selectedDate: selectedDate,
         );
       },
     );
@@ -3237,13 +3517,15 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
       noteController: noteController,
       initialType: 'given',
       showPersonFields: false,
-      onSave: (selectedType) async {
+      initialSelectedDate: DateTime.now(),
+      onSave: (selectedType, selectedDate) async {
         final amount = double.tryParse(amountController.text.trim()) ?? 0;
         await _addTransactionToCustomer(
           customer: customer,
           type: selectedType,
           amount: amount,
           note: noteController.text,
+          selectedDate: selectedDate,
         );
       },
     );
@@ -3259,7 +3541,8 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
       noteController: noteController,
       initialType: transaction.type,
       showPersonFields: false,
-      onSave: (selectedType) async {
+      initialSelectedDate: transaction.transactionDate,
+      onSave: (selectedType, selectedDate) async {
         final amount = double.tryParse(amountController.text.trim()) ?? 0;
         await _updateTransaction(
           customer: customer,
@@ -3267,6 +3550,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
           newType: selectedType,
           newAmount: amount,
           note: noteController.text,
+          selectedDate: selectedDate,
         );
       },
     );
@@ -3280,9 +3564,11 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
     required TextEditingController noteController,
     required String initialType,
     required bool showPersonFields,
-    required Future<void> Function(String selectedType) onSave,
+    DateTime? initialSelectedDate,
+    required Future<void> Function(String selectedType, DateTime selectedDate) onSave,
   }) async {
     String selectedType = initialType;
+    DateTime selectedDate = initialSelectedDate ?? DateTime.now();
 
     await showDialog(
       context: context,
@@ -3328,6 +3614,37 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
                       ],
                     ),
                     const SizedBox(height: 12),
+                    _dialogDatePickerField(
+                      selectedDate: selectedDate,
+                      fill: field,
+                      onTap: () async {
+                        final now = DateTime.now();
+                        final picked = await showDatePicker(
+                          context: context,
+                          firstDate: DateTime(2020),
+                          lastDate: now,
+                          initialDate: selectedDate.isAfter(now) ? now : selectedDate,
+                          helpText: 'Select udhar transaction date',
+                          builder: (context, child) {
+                            final base = Theme.of(context);
+                            return Theme(
+                              data: base.copyWith(
+                                colorScheme: base.colorScheme.copyWith(
+                                  primary: const Color(0xFF6C4DFF),
+                                  onPrimary: Colors.white,
+                                ),
+                              ),
+                              child: child ?? const SizedBox.shrink(),
+                            );
+                          },
+                        );
+
+                        if (picked != null) {
+                          setDialogState(() => selectedDate = picked);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
                     _dialogField(amountController, 'Amount', Icons.currency_rupee_rounded, field, keyboardType: const TextInputType.numberWithOptions(decimal: true)),
                     const SizedBox(height: 12),
                     _dialogField(noteController, 'Note', Icons.notes_rounded, field),
@@ -3342,7 +3659,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         ),
                         onPressed: () async {
-                          await onSave(selectedType);
+                          await onSave(selectedType, selectedDate);
                           if (context.mounted) Navigator.pop(context);
                         },
                         child: const Text('Save Changes', style: TextStyle(fontWeight: FontWeight.w900)),
@@ -3385,6 +3702,37 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
     );
   }
 
+  Widget _dialogDatePickerField({
+    required DateTime selectedDate,
+    required Color fill,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.calendar_month_rounded, size: 19),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _dateText(selectedDate),
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
+            const Icon(Icons.keyboard_arrow_down_rounded),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _dialogField(
     TextEditingController controller,
     String hint,
@@ -3410,12 +3758,17 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
   Future<void> _openEditCustomerDialog(_WebUdharCustomer customer) async {
     final nameController = TextEditingController(text: customer.name);
     final phoneController = TextEditingController(text: customer.phone);
+    DateTime selectedDate = customer.latestTransactionDate;
 
     await showDialog(
       context: context,
       builder: (context) {
         final isDark = widget.isDark;
-        return Dialog(
+        final field = isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFF4F6FB);
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
           backgroundColor: Colors.transparent,
           child: Container(
             width: 420,
@@ -3435,9 +3788,28 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
                   ],
                 ),
                 const SizedBox(height: 14),
-                _dialogField(nameController, 'Person name', Icons.person_rounded, isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFF4F6FB)),
+                _dialogField(nameController, 'Person name', Icons.person_rounded, field),
                 const SizedBox(height: 12),
-                _dialogField(phoneController, 'Mobile number', Icons.phone_rounded, isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFF4F6FB), keyboardType: TextInputType.phone),
+                _dialogField(phoneController, 'Mobile number', Icons.phone_rounded, field, keyboardType: TextInputType.phone),
+                const SizedBox(height: 12),
+                _dialogDatePickerField(
+                  selectedDate: selectedDate,
+                  fill: field,
+                  onTap: () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      firstDate: DateTime(2020),
+                      lastDate: now,
+                      initialDate: selectedDate.isAfter(now) ? now : selectedDate,
+                      helpText: 'Select udhar date',
+                    );
+
+                    if (picked != null) {
+                      setDialogState(() => selectedDate = picked);
+                    }
+                  },
+                ),
                 const SizedBox(height: 18),
                 SizedBox(
                   width: double.infinity,
@@ -3445,7 +3817,7 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6C4DFF), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
                     onPressed: () async {
-                      await _updateCustomer(customer: customer, name: nameController.text, phone: phoneController.text);
+                      await _updateCustomer(customer: customer, name: nameController.text, phone: phoneController.text, selectedDate: selectedDate);
                       if (context.mounted) Navigator.pop(context);
                     },
                     child: const Text('Save Changes', style: TextStyle(fontWeight: FontWeight.w900)),
@@ -3454,6 +3826,8 @@ class _WebUdharBookPageState extends State<_WebUdharBookPage> {
               ],
             ),
           ),
+        );
+          },
         );
       },
     );

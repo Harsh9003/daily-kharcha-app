@@ -23,7 +23,7 @@ class UdharCard extends StatelessWidget {
             ? Colors.orangeAccent
             : Colors.blueGrey;
 
-    final dt = customer.updatedAt.toDate();
+    final dt = customer.latestTransactionDate.toDate();
 
     return GestureDetector(
       onTap: () {

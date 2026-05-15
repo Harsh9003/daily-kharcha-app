@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../services/recycle_bin_service.dart';
+
 class UdharService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -16,10 +18,12 @@ class UdharService {
   }
 
   static Stream<QuerySnapshot<Map<String, dynamic>>> streamTransactions(String customerId) {
+    // Do not use orderBy here because older/newly migrated Udhar transactions
+    // may have selectedDate but not createdAt. orderBy hides documents where
+    // the ordered field is missing. We sort safely in the UI after parsing.
     return customersRef()
         .doc(customerId)
         .collection('transactions')
-        .orderBy('createdAt', descending: true)
         .snapshots();
   }
 
@@ -29,6 +33,7 @@ class UdharService {
     required String type, // given / taken
     required double amount,
     required String note,
+    String paymentMode = 'Cash',
     DateTime? transactionDate,
   }) async {
     final cleanName = name.trim();
@@ -53,14 +58,16 @@ class UdharService {
         'nameLower': nameLower,
         'phone': cleanPhone,
         'balance': balanceChange,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': Timestamp.fromDate(finalTransactionDate),
+        'updatedAt': Timestamp.fromDate(finalTransactionDate),
+        'latestTransactionDate': Timestamp.fromDate(finalTransactionDate),
       });
 
       await customerDoc.collection('transactions').add({
         'type': type,
         'amount': amount,
         'note': note.trim(),
+        'paymentMode': paymentMode,
         'createdAt': Timestamp.fromDate(finalTransactionDate),
         'selectedDate': Timestamp.fromDate(finalTransactionDate),
       });
@@ -70,13 +77,15 @@ class UdharService {
       await customerDoc.update({
         'balance': FieldValue.increment(balanceChange),
         'phone': cleanPhone.isNotEmpty ? cleanPhone : existing.docs.first.data()['phone'],
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': Timestamp.fromDate(finalTransactionDate),
+        'latestTransactionDate': Timestamp.fromDate(finalTransactionDate),
       });
 
       await customerDoc.collection('transactions').add({
         'type': type,
         'amount': amount,
         'note': note.trim(),
+        'paymentMode': paymentMode,
         'createdAt': Timestamp.fromDate(finalTransactionDate),
         'selectedDate': Timestamp.fromDate(finalTransactionDate),
       });
@@ -87,6 +96,7 @@ class UdharService {
     required String type, // given / taken
     required double amount,
     required String note,
+    String paymentMode = 'Cash',
     DateTime? transactionDate,
   }) async {
     if (amount <= 0) return;
@@ -98,13 +108,15 @@ class UdharService {
 
     await customerDoc.update({
       'balance': FieldValue.increment(balanceChange),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': Timestamp.fromDate(finalTransactionDate),
+      'latestTransactionDate': Timestamp.fromDate(finalTransactionDate),
     });
 
     await customerDoc.collection('transactions').add({
       'type': type,
       'amount': amount,
       'note': note.trim(),
+      'paymentMode': paymentMode,
       'createdAt': Timestamp.fromDate(finalTransactionDate),
       'selectedDate': Timestamp.fromDate(finalTransactionDate),
     });
@@ -117,7 +129,23 @@ class UdharService {
     required double amount,
   }) async {
     final customerDoc = customersRef().doc(customerId);
+    final customerSnapshot = await customerDoc.get();
     final txDoc = customerDoc.collection('transactions').doc(transactionId);
+    final txSnapshot = await txDoc.get();
+
+    if (!txSnapshot.exists) return;
+
+    final txData = txSnapshot.data() ?? <String, dynamic>{};
+    txData['id'] = txSnapshot.id;
+
+    final customerName = customerSnapshot.data()?['name']?.toString() ?? 'Udhar Person';
+
+    await RecycleBinService.moveUdharTransactionToRecycleBin(
+      uid: _uid,
+      customerId: customerId,
+      customerName: customerName,
+      transaction: txData,
+    );
 
     final double reverseBalance = type == 'given' ? -amount : amount;
 
@@ -128,28 +156,59 @@ class UdharService {
 
     await txDoc.delete();
   }
-  static Future<void> deleteCustomer(String customerId) async {
-    final tx = await customersRef().doc(customerId).collection('transactions').get();
 
-    for (final doc in tx.docs) {
-      await doc.reference.delete();
+  static Future<void> deleteCustomer(String customerId) async {
+    final customerDoc = customersRef().doc(customerId);
+    final customerSnapshot = await customerDoc.get();
+
+    if (!customerSnapshot.exists) return;
+
+    final customerData = customerSnapshot.data() ?? <String, dynamic>{};
+    final txSnapshot = await customerDoc.collection('transactions').get();
+
+    final transactions = txSnapshot.docs.map((doc) {
+      final data = doc.data();
+      data['id'] = doc.id;
+      return data;
+    }).toList();
+
+    await RecycleBinService.moveUdharCustomerToRecycleBin(
+      uid: _uid,
+      customerId: customerId,
+      customer: customerData,
+      transactions: transactions,
+    );
+
+    final batch = _firestore.batch();
+
+    for (final doc in txSnapshot.docs) {
+      batch.delete(doc.reference);
     }
 
-    await customersRef().doc(customerId).delete();
+    batch.delete(customerDoc);
+
+    await batch.commit();
   }
   static Future<void> updateCustomer({
     required String customerId,
     required String name,
     required String phone,
+    DateTime? latestTransactionDate,
   }) async {
     final cleanName = name.trim();
 
-    await customersRef().doc(customerId).update({
+    final Map<String, dynamic> updateData = {
       'name': cleanName,
       'nameLower': cleanName.toLowerCase(),
       'phone': phone.trim(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    };
+
+    if (latestTransactionDate != null) {
+      updateData['latestTransactionDate'] = Timestamp.fromDate(latestTransactionDate);
+    }
+
+    await customersRef().doc(customerId).update(updateData);
   }
   static Future<void> updateTransactionFromCustomer({
     required String customerId,
@@ -159,6 +218,8 @@ class UdharService {
     required String newType,
     required double newAmount,
     required String note,
+    String? paymentMode,
+    DateTime? transactionDate,
   }) async {
     final customerDoc = customersRef().doc(customerId);
     final txDoc = customerDoc.collection('transactions').doc(transactionId);
@@ -167,16 +228,37 @@ class UdharService {
     final double newBalanceEffect = newType == 'given' ? newAmount : -newAmount;
     final double balanceDifference = newBalanceEffect - oldBalanceEffect;
 
-    await customerDoc.update({
-      'balance': FieldValue.increment(balanceDifference),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    final DateTime? finalTransactionDate = transactionDate;
 
-    await txDoc.update({
+    final Map<String, dynamic> customerUpdateData = {
+      'balance': FieldValue.increment(balanceDifference),
+      'updatedAt': finalTransactionDate != null
+          ? Timestamp.fromDate(finalTransactionDate)
+          : FieldValue.serverTimestamp(),
+    };
+
+    if (finalTransactionDate != null) {
+      customerUpdateData['latestTransactionDate'] = Timestamp.fromDate(finalTransactionDate);
+    }
+
+    await customerDoc.update(customerUpdateData);
+
+    final Map<String, dynamic> txUpdateData = {
       'type': newType,
       'amount': newAmount,
       'note': note.trim(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    };
+
+    if (paymentMode != null && paymentMode.trim().isNotEmpty) {
+      txUpdateData['paymentMode'] = paymentMode.trim();
+    }
+
+    if (finalTransactionDate != null) {
+      txUpdateData['createdAt'] = Timestamp.fromDate(finalTransactionDate);
+      txUpdateData['selectedDate'] = Timestamp.fromDate(finalTransactionDate);
+    }
+
+    await txDoc.update(txUpdateData);
   }
 }

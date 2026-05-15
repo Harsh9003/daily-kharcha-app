@@ -7,6 +7,7 @@ class UdharCustomerModel {
   final double balance;
   final Timestamp createdAt;
   final Timestamp updatedAt;
+  final Timestamp latestTransactionDate;
 
   UdharCustomerModel({
     required this.id,
@@ -15,6 +16,7 @@ class UdharCustomerModel {
     required this.balance,
     required this.createdAt,
     required this.updatedAt,
+    required this.latestTransactionDate,
   });
 
   bool get youWillReceive => balance > 0;
@@ -30,6 +32,11 @@ class UdharCustomerModel {
       balance: ((data['balance'] ?? 0) as num).toDouble(),
       createdAt: data['createdAt'] ?? Timestamp.now(),
       updatedAt: data['updatedAt'] ?? Timestamp.now(),
+      latestTransactionDate: data['latestTransactionDate'] ??
+          data['selectedDate'] ??
+          data['updatedAt'] ??
+          data['createdAt'] ??
+          Timestamp.now(),
     );
   }
 }

@@ -526,6 +526,7 @@ class _MainScreenState extends State<MainScreen> {
   String viewMode = "Monthly";
   DateTime selectedDate = DateTime.now();
   int selectedMonth = DateTime.now().month;
+  int selectedYear = DateTime.now().year;
   String selectedDayType = "Today";
   bool showSearchBar = false;
   String searchQuery = "";
@@ -541,10 +542,26 @@ class _MainScreenState extends State<MainScreen> {
 
   double dailyLimit = 0;
   double monthlyLimit = 0;
+  Map<int, double> monthlyLimitsByYear = {};
   Map<int, double> monthlyLimitsByMonth = {};
+  Map<String, double> monthlyLimitsByYearMonth = {};
+
+  String get selectedYearMonthKey => "${selectedYear}_${selectedMonth.toString().padLeft(2, '0')}";
 
   double getMonthlyLimitForSelectedMonth() {
-    return monthlyLimitsByMonth[selectedMonth] ?? monthlyLimit;
+    return monthlyLimitsByYearMonth[selectedYearMonthKey] ??
+        monthlyLimitsByYear[selectedYear] ??
+        0;
+  }
+
+  bool get isSelectedMonthInFuture {
+    final now = DateTime.now();
+    return selectedYear > now.year ||
+        (selectedYear == now.year && selectedMonth > now.month);
+  }
+
+  int _daysInMonth(int year, int month) {
+    return DateTime(year, month + 1, 0).day;
   }
 
   bool isInternetAvailable = true;
@@ -1696,7 +1713,9 @@ class _MainScreenState extends State<MainScreen> {
 
       dailyLimit = 0;
       monthlyLimit = 0;
+      monthlyLimitsByYear.clear();
       monthlyLimitsByMonth.clear();
+      monthlyLimitsByYearMonth.clear();
       selectedWeekIndex = 0;
       showPercentage = false;
       reportChartType = "List";
@@ -1759,10 +1778,13 @@ class _MainScreenState extends State<MainScreen> {
     await prefs.remove('categoryColors');
     await prefs.remove('viewMode');
     await prefs.remove('selectedMonth');
+    await prefs.remove('selectedYear');
     await prefs.remove('selectedDayType');
     await prefs.remove('dailyLimit');
     await prefs.remove('monthlyLimit');
     await prefs.remove('monthlyLimitsByMonth');
+    await prefs.remove('monthlyLimitsByYear');
+    await prefs.remove('monthlyLimitsByYearMonth');
     await prefs.remove('reportView');
     await prefs.remove('reportChartType');
     await prefs.remove('selectedDate');
@@ -1781,6 +1803,7 @@ class _MainScreenState extends State<MainScreen> {
       viewMode = "Monthly";
       selectedDate = DateTime.now();
       selectedMonth = DateTime.now().month;
+      selectedYear = DateTime.now().year;
       selectedDayType = "Today";
       reportView = "Monthly";
       showPercentage = false;
@@ -1788,7 +1811,9 @@ class _MainScreenState extends State<MainScreen> {
       selectedWeekIndex = 0;
       dailyLimit = 0;
       monthlyLimit = 0;
+      monthlyLimitsByYear.clear();
       monthlyLimitsByMonth.clear();
+      monthlyLimitsByYearMonth.clear();
     });
   }
 
@@ -1813,12 +1838,21 @@ class _MainScreenState extends State<MainScreen> {
       await prefs.setStringList('categories', categories);
       await prefs.setString('viewMode', viewMode);
       await prefs.setInt('selectedMonth', selectedMonth);
+      await prefs.setInt('selectedYear', selectedYear);
       await prefs.setString('selectedDayType', selectedDayType);
       await prefs.setDouble('dailyLimit', dailyLimit);
       await prefs.setDouble('monthlyLimit', monthlyLimit);
       await prefs.setString(
         'monthlyLimitsByMonth',
         jsonEncode(monthlyLimitsByMonth.map((key, value) => MapEntry(key.toString(), value))),
+      );
+      await prefs.setString(
+        'monthlyLimitsByYear',
+        jsonEncode(monthlyLimitsByYear.map((key, value) => MapEntry(key.toString(), value))),
+      );
+      await prefs.setString(
+        'monthlyLimitsByYearMonth',
+        jsonEncode(monthlyLimitsByYearMonth),
       );
       await prefs.setString('reportView', reportView);
       await prefs.setString('reportChartType', reportChartType);
@@ -1886,6 +1920,7 @@ class _MainScreenState extends State<MainScreen> {
 
     viewMode = prefs.getString('viewMode') ?? viewMode;
     selectedMonth = prefs.getInt('selectedMonth') ?? selectedMonth;
+    selectedYear = prefs.getInt('selectedYear') ?? selectedYear;
     selectedDayType = prefs.getString('selectedDayType') ?? selectedDayType;
     dailyLimit = prefs.getDouble('dailyLimit') ?? dailyLimit;
     monthlyLimit = prefs.getDouble('monthlyLimit') ?? monthlyLimit;
@@ -1895,6 +1930,32 @@ class _MainScreenState extends State<MainScreen> {
       monthlyLimitsByMonth = decodedMonthlyLimits.map(
         (key, value) => MapEntry(int.parse(key), (value as num).toDouble()),
       );
+    }
+
+    final savedMonthlyLimitsByYear = prefs.getString('monthlyLimitsByYear');
+    if (savedMonthlyLimitsByYear != null && savedMonthlyLimitsByYear.isNotEmpty) {
+      final decodedMonthlyLimitsByYear = jsonDecode(savedMonthlyLimitsByYear) as Map<String, dynamic>;
+      monthlyLimitsByYear = decodedMonthlyLimitsByYear.map(
+        (key, value) => MapEntry(int.parse(key), (value as num).toDouble()),
+      );
+    }
+
+    final savedMonthlyLimitsByYearMonth = prefs.getString('monthlyLimitsByYearMonth');
+    if (savedMonthlyLimitsByYearMonth != null && savedMonthlyLimitsByYearMonth.isNotEmpty) {
+      final decodedMonthlyLimitsByYearMonth = jsonDecode(savedMonthlyLimitsByYearMonth) as Map<String, dynamic>;
+      monthlyLimitsByYearMonth = decodedMonthlyLimitsByYearMonth.map(
+        (key, value) => MapEntry(key, (value as num).toDouble()),
+      );
+    }
+
+    // One-time migration from old month-only limits to current selected year.
+    if (monthlyLimitsByYearMonth.isEmpty && monthlyLimitsByMonth.isNotEmpty) {
+      monthlyLimitsByMonth.forEach((month, value) {
+        monthlyLimitsByYearMonth["${selectedYear}_${month.toString().padLeft(2, '0')}"] = value;
+      });
+    }
+    if (monthlyLimitsByYear.isEmpty && monthlyLimit > 0) {
+      monthlyLimitsByYear[selectedYear] = monthlyLimit;
     }
     reportView = prefs.getString('reportView') ?? reportView;
     reportChartType = prefs.getString('reportChartType') ?? reportChartType;
@@ -1934,6 +1995,17 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> addTransaction(double amount, String category, String note) async {
     final now = DateTime.now();
 
+    if (viewMode == "Monthly" && isSelectedMonthInFuture) {
+      showPremiumSnackBar(
+        message: "Future month transactions are not allowed",
+        icon: Icons.lock_clock_rounded,
+        color: Colors.orangeAccent,
+      );
+      return;
+    }
+
+    final int safeDay = now.day.clamp(1, _daysInMonth(selectedYear, selectedMonth)).toInt();
+
     final DateTime finalDate = viewMode == "Daily"
         ? DateTime(
             selectedDate.year,
@@ -1943,9 +2015,9 @@ class _MainScreenState extends State<MainScreen> {
             now.minute,
           )
         : DateTime(
-            now.year,
+            selectedYear,
             selectedMonth,
-            now.day,
+            safeDay,
             now.hour,
             now.minute,
           );
@@ -2000,7 +2072,7 @@ class _MainScreenState extends State<MainScreen> {
   double get total {
     if (viewMode == "Monthly") {
       return transactions
-          .where((t) => t['date'].month == selectedMonth)
+          .where((t) => t['date'].month == selectedMonth && t['date'].year == selectedYear)
           .fold(0.0, (s, i) => s + (i['amount'] as double));
     } else {
       return transactions
@@ -2029,7 +2101,7 @@ class _MainScreenState extends State<MainScreen> {
 
     if (viewMode == "Monthly") {
       list = transactions
-          .where((t) => t['date'].month == selectedMonth)
+          .where((t) => t['date'].month == selectedMonth && t['date'].year == selectedYear)
           .toList();
     } else {
       list = transactions
@@ -2104,10 +2176,6 @@ class _MainScreenState extends State<MainScreen> {
     return "${_weekdayShort(start)} ${start.day} ${_monthShort(start)} - ${_weekdayShort(end)} ${end.day} ${_monthShort(end)}";
   }
 
-  int _daysInMonth(int year, int month) {
-    return DateTime(year, month + 1, 0).day;
-  }
-
   List<Map<String, DateTime>> getWeeksForMonth(int year, int month) {
     List<Map<String, DateTime>> weeks = [];
 
@@ -2134,7 +2202,7 @@ class _MainScreenState extends State<MainScreen> {
   List<Map<String, dynamic>> getCurrentReportList() {
     if (reportView == "Monthly") {
       return transactions.where((t) {
-        return t['date'].month == selectedMonth;
+        return t['date'].month == selectedMonth && t['date'].year == selectedYear;
       }).toList();
     } else if (reportView == "Daily") {
       return transactions.where((t) {
@@ -2143,7 +2211,7 @@ class _MainScreenState extends State<MainScreen> {
             t['date'].year == selectedDate.year;
       }).toList();
     } else {
-      final weeks = getWeeksForMonth(DateTime.now().year, selectedMonth);
+      final weeks = getWeeksForMonth(selectedYear, selectedMonth);
       if (weeks.isEmpty) return [];
 
       if (selectedWeekIndex >= weeks.length) {
@@ -2431,6 +2499,65 @@ class _MainScreenState extends State<MainScreen> {
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    if (viewMode == "Monthly") ...[
+                                      Container(
+                                        height: 34,
+                                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.16),
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(color: Colors.white.withOpacity(0.12)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            GestureDetector(
+                                              onTap: () {
+                                                setState(() => selectedYear--);
+                                                saveData();
+                                              },
+                                              child: const Padding(
+                                                padding: EdgeInsets.symmetric(horizontal: 4),
+                                                child: Icon(Icons.chevron_left_rounded, color: Colors.white, size: 18),
+                                              ),
+                                            ),
+                                            Text(
+                                              "$selectedYear",
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                            GestureDetector(
+                                              onTap: () {
+                                                final now = DateTime.now();
+                                                if (selectedYear >= now.year) {
+                                                  showPremiumSnackBar(
+                                                    message: "Future year is not allowed",
+                                                    icon: Icons.lock_clock_rounded,
+                                                    color: Colors.orangeAccent,
+                                                  );
+                                                  return;
+                                                }
+                                                setState(() {
+                                                  selectedYear++;
+                                                  if (selectedYear == now.year && selectedMonth > now.month) {
+                                                    selectedMonth = now.month;
+                                                  }
+                                                });
+                                                saveData();
+                                              },
+                                              child: const Padding(
+                                                padding: EdgeInsets.symmetric(horizontal: 4),
+                                                child: Icon(Icons.chevron_right_rounded, color: Colors.white, size: 18),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                    ],
                                     _homeModeChip("Monthly", viewMode == "Monthly", () {
                                       setState(() => viewMode = "Monthly");
                                       saveData();
@@ -2578,13 +2705,25 @@ class _MainScreenState extends State<MainScreen> {
                       scrollDirection: Axis.horizontal,
                       itemCount: 12,
                       itemBuilder: (_, i) {
-                        bool sel = selectedMonth == i + 1;
+                        final monthNumber = i + 1;
+                        final now = DateTime.now();
+                        final bool sel = selectedMonth == monthNumber;
+                        final bool isFutureMonth = selectedYear > now.year ||
+                            (selectedYear == now.year && monthNumber > now.month);
                         return GestureDetector(
-                          onTap: () {
-                            setState(() => selectedMonth = i + 1);
-                            saveData();
-                          },
-                          child: Container(
+                          onTap: isFutureMonth
+                              ? () => showPremiumSnackBar(
+                                    message: "Future month is not allowed",
+                                    icon: Icons.lock_clock_rounded,
+                                    color: Colors.orangeAccent,
+                                  )
+                              : () {
+                                  setState(() => selectedMonth = monthNumber);
+                                  saveData();
+                                },
+                          child: Opacity(
+                            opacity: isFutureMonth ? 0.38 : 1,
+                            child: Container(
                             margin: EdgeInsets.symmetric(horizontal: 5),
                             padding: EdgeInsets.all(10),
                             decoration: BoxDecoration(
@@ -2610,6 +2749,7 @@ class _MainScreenState extends State<MainScreen> {
                                 color: sel ? Colors.black : Colors.white,
                               ),
                             ),
+                          ),
                           ),
                         );
                       },
@@ -2932,7 +3072,9 @@ class _MainScreenState extends State<MainScreen> {
           _profileTile(
             icon: Icons.calendar_month_rounded,
             title: "Monthly Limit",
-            value: monthlyLimit == 0 ? "Not set" : "₹ ${monthlyLimit.toStringAsFixed(0)}",
+            value: (monthlyLimitsByYear[selectedYear] ?? 0) == 0
+                ? "Not set"
+                : "₹ ${(monthlyLimitsByYear[selectedYear] ?? 0).toStringAsFixed(0)}",
             onTap: () {
               setState(() {
                 viewMode = "Monthly";
@@ -3012,17 +3154,17 @@ class _MainScreenState extends State<MainScreen> {
             title: "App Name",
             value: "Daily Kharcha",
           ),
-          // SizedBox(height: 10),
-          // _profileTile(
-          //   icon: Icons.code_rounded,
-          //   title: "Developer",
-          //   value: "Harshender Singh",
-          // ),
+          SizedBox(height: 10),
+          _profileTile(
+            icon: Icons.emoji_flags,
+            title: "Product",
+            value: "Made in India",
+          ),
           SizedBox(height: 10),
           _profileTile(
             icon: Icons.info_outline_rounded,
             title: "Version",
-            value: "1.2.0",
+            value: "2.1.0",
           ),
         ],
       ),
@@ -5785,8 +5927,8 @@ class _MainScreenState extends State<MainScreen> {
 
     void refreshControllerForMode(String mode) {
       final value = mode == "All Months"
-          ? monthlyLimit
-          : (monthlyLimitsByMonth[selectedMonth] ?? monthlyLimit);
+          ? (monthlyLimitsByYear[selectedYear] ?? 0)
+          : getMonthlyLimitForSelectedMonth();
       controller.text = value == 0 ? "" : value.toStringAsFixed(0);
       controller.selection = TextSelection.fromPosition(
         TextPosition(offset: controller.text.length),
@@ -5953,7 +6095,7 @@ class _MainScreenState extends State<MainScreen> {
                             children: [
                               buildLimitModeChip(
                                 title: "All Months",
-                                subtitle: "Default limit",
+                                subtitle: "$selectedYear default",
                                 icon: Icons.all_inclusive_rounded,
                                 selected: selectedLimitMode == "All Months",
                                 onTap: () {
@@ -5966,7 +6108,7 @@ class _MainScreenState extends State<MainScreen> {
                               const SizedBox(width: 10),
                               buildLimitModeChip(
                                 title: "This Month",
-                                subtitle: "Only selected",
+                                subtitle: "${selectedMonth.toString().padLeft(2, '0')}/$selectedYear",
                                 icon: Icons.calendar_month_rounded,
                                 selected: selectedLimitMode == "This Month",
                                 onTap: () {
@@ -6031,8 +6173,8 @@ class _MainScreenState extends State<MainScreen> {
                               Expanded(
                                 child: Text(
                                   selectedLimitMode == "All Months"
-                                      ? "This will become the default limit for every month."
-                                      : "This limit will apply only to the selected month.",
+                                      ? "This will become the default monthly limit for $selectedYear only."
+                                      : "This limit will apply only to ${selectedMonth.toString().padLeft(2, '0')}/$selectedYear.",
                                   style: const TextStyle(
                                     color: Colors.black45,
                                     fontSize: 11,
@@ -6077,8 +6219,10 @@ class _MainScreenState extends State<MainScreen> {
                                     if (viewMode == "Daily") {
                                       dailyLimit = value;
                                     } else if (selectedLimitMode == "All Months") {
+                                      monthlyLimitsByYear[selectedYear] = value;
                                       monthlyLimit = value;
                                     } else {
+                                      monthlyLimitsByYearMonth[selectedYearMonthKey] = value;
                                       monthlyLimitsByMonth[selectedMonth] = value;
                                     }
                                   });
