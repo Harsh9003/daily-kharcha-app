@@ -46,6 +46,9 @@ class ReportsPage extends StatefulWidget {
 
 class _ReportsPageState extends State<ReportsPage> {
   String selectedSection = "Transactions";
+  String selectedPaymentMode = "All";
+
+  static const List<String> _paymentModes = ["All", "Cash", "UPI", "Card"];
 
   static const Color _darkBg = Color(0xFF020817);
   static const Color _cardDark = Color(0xFF1F2030);
@@ -71,7 +74,7 @@ class _ReportsPageState extends State<ReportsPage> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final reportList = widget.reportList;
+    final reportList = _filterTransactionsByPaymentMode(widget.reportList);
 
     final double totalAmount = reportList.fold(
       0.0,
@@ -91,9 +94,10 @@ class _ReportsPageState extends State<ReportsPage> {
       stream: UdharService.streamCustomers(),
       builder: (context, snapshot) {
         final docs = snapshot.data?.docs ?? [];
-        final customers = docs.map((doc) {
+        final allCustomers = docs.map((doc) {
           final data = doc.data();
           return {
+            ...data,
             'id': doc.id,
             'name': data['name'] ?? 'Unknown',
             'phone': data['phone'] ?? '',
@@ -102,62 +106,78 @@ class _ReportsPageState extends State<ReportsPage> {
           };
         }).toList();
 
-        final willReceive = customers
-            .where((e) => (e['balance'] as double) > 0)
-            .fold<double>(0, (s, e) => s + (e['balance'] as double));
+        return FutureBuilder<List<Map<String, dynamic>>>(
+          future: _buildUdharCustomersForSelectedPaymentMode(allCustomers),
+          builder: (context, udharSnapshot) {
+            final customers = udharSnapshot.data ??
+                (selectedPaymentMode == "All" ? allCustomers : <Map<String, dynamic>>[]);
 
-        final needToPay = customers
-            .where((e) => (e['balance'] as double) < 0)
-            .fold<double>(0, (s, e) => s + ((e['balance'] as double).abs()));
+            final willReceive = customers
+                .where((e) => ((e['balance'] ?? 0) as num).toDouble() > 0)
+                .fold<double>(
+                  0,
+                  (s, e) => s + ((e['balance'] ?? 0) as num).toDouble(),
+                );
 
-        return Container(
-          color: isDark ? _darkBg : const Color(0xFFF6F7FB),
-          child: Column(
-            children: [
-              _buildHeader(
-                isDark: isDark,
-                totalAmount: totalAmount,
-                willReceive: willReceive,
-                needToPay: needToPay,
-                customers: customers,
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildTopRow(isDark),
-                      if (selectedSection == "Transactions") ...[
-                        const SizedBox(height: 10),
-                        _buildDateFilters(isDark, weeks),
-                      ] else
-                        const SizedBox(height: 12),
-                      Expanded(
-                        child: selectedSection == "Transactions"
-                            ? _buildTransactionReport(
-                                isDark,
-                                categoryTotal,
-                                totalAmount,
-                                reportList,
-                              )
-                            : _buildUdharReport(
-                                isDark: isDark,
-                                isLoading: snapshot.connectionState ==
-                                    ConnectionState.waiting,
-                                customers: customers,
-                                willReceive: willReceive,
-                                needToPay: needToPay,
-                              ),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildBottomToggle(isDark),
-                    ],
+            final needToPay = customers
+                .where((e) => ((e['balance'] ?? 0) as num).toDouble() < 0)
+                .fold<double>(
+                  0,
+                  (s, e) => s + (((e['balance'] ?? 0) as num).toDouble().abs()),
+                );
+
+            return Container(
+              color: isDark ? _darkBg : const Color(0xFFF6F7FB),
+              child: Column(
+                children: [
+                  _buildHeader(
+                    isDark: isDark,
+                    totalAmount: totalAmount,
+                    willReceive: willReceive,
+                    needToPay: needToPay,
+                    customers: customers,
                   ),
-                ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildTopRow(isDark),
+                          if (selectedSection == "Transactions") ...[
+                            const SizedBox(height: 10),
+                            _buildDateFilters(isDark, weeks),
+                          ] else
+                            const SizedBox(height: 12),
+                          Expanded(
+                            child: selectedSection == "Transactions"
+                                ? _buildTransactionReport(
+                                    isDark,
+                                    categoryTotal,
+                                    totalAmount,
+                                    reportList,
+                                  )
+                                : _buildUdharReport(
+                                    isDark: isDark,
+                                    isLoading: snapshot.connectionState ==
+                                            ConnectionState.waiting ||
+                                        udharSnapshot.connectionState ==
+                                            ConnectionState.waiting,
+                                    customers: customers,
+                                    willReceive: willReceive,
+                                    needToPay: needToPay,
+                                  ),
+                          ),
+                          const SizedBox(height: 12),
+                          _buildBottomToggle(isDark),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -254,11 +274,243 @@ class _ReportsPageState extends State<ReportsPage> {
                       ],
                     ),
             ),
+            const SizedBox(height: 14),
+            _buildPaymentModeFilter(),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildPaymentModeFilter() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Payment Mode",
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 7),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.30),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withOpacity(0.10)),
+          ),
+          child: Row(
+            children: _paymentModes.map((mode) {
+              return Expanded(child: _paymentModeChip(mode));
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _paymentModeChip(String mode) {
+    final selected = selectedPaymentMode == mode;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          selectedPaymentMode = mode;
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        margin: const EdgeInsets.symmetric(horizontal: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 11),
+        decoration: BoxDecoration(
+          gradient: selected
+              ? const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF7C5CFF), Color(0xFF4B35C8)],
+                )
+              : null,
+          color: selected ? null : Colors.white.withOpacity(0.07),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected
+                ? Colors.white.withOpacity(0.14)
+                : Colors.white.withOpacity(0.06),
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF7C5CFF).withOpacity(0.25),
+                    blurRadius: 12,
+                    offset: const Offset(0, 5),
+                  ),
+                ]
+              : [],
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                _paymentModeIcon(mode),
+                size: 16,
+                color: _paymentModeIconColor(mode, selected),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                mode,
+                style: TextStyle(
+                  color: selected ? Colors.white : Colors.white70,
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _paymentModeIcon(String mode) {
+    switch (mode) {
+      case "Cash":
+        return Icons.payments_rounded;
+      case "UPI":
+        return Icons.bolt_rounded;
+      case "Card":
+        return Icons.credit_card_rounded;
+      default:
+        return Icons.grid_view_rounded;
+    }
+  }
+
+  Color _paymentModeIconColor(String mode, bool selected) {
+    if (selected) return Colors.white;
+
+    switch (mode) {
+      case "Cash":
+        return Colors.lightGreenAccent;
+      case "UPI":
+        return Colors.orangeAccent;
+      case "Card":
+        return Colors.orangeAccent;
+      default:
+        return Colors.white70;
+    }
+  }
+
+  List<Map<String, dynamic>> _filterTransactionsByPaymentMode(
+    List<Map<String, dynamic>> items,
+  ) {
+    if (selectedPaymentMode == "All") return items;
+
+    return items.where((tx) {
+      final mode = _readPaymentMode(tx);
+      return mode == selectedPaymentMode.toLowerCase();
+    }).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _buildUdharCustomersForSelectedPaymentMode(
+    List<Map<String, dynamic>> customers,
+  ) async {
+    if (selectedPaymentMode == "All") return customers;
+
+    final selectedMode = selectedPaymentMode.toLowerCase();
+    final List<Map<String, dynamic>> filteredCustomers = [];
+
+    for (final customer in customers) {
+      final customerId = (customer['id'] ?? '').toString();
+      if (customerId.isEmpty) continue;
+
+      final txSnapshot = await UdharService.customersRef()
+          .doc(customerId)
+          .collection('transactions')
+          .get();
+
+      double filteredBalance = 0;
+      Timestamp? latestUpdatedAt;
+
+      for (final txDoc in txSnapshot.docs) {
+        final tx = txDoc.data();
+        final mode = _readPaymentMode(tx);
+
+        if (mode != selectedMode) continue;
+
+        final amount = ((tx['amount'] ?? 0) as num).toDouble();
+        final type = (tx['type'] ?? '').toString().trim().toLowerCase();
+
+        if (_isUdharReceivedType(type)) {
+          filteredBalance -= amount;
+        } else if (_isUdharGivenType(type)) {
+          filteredBalance += amount;
+        } else {
+          // Existing/old entries usually store only amount + paymentMode.
+          // Keep them receivable by default so filtering does not hide or flip them.
+          filteredBalance += amount;
+        }
+
+        final updatedAt = tx['updatedAt'] ?? tx['createdAt'];
+        if (updatedAt is Timestamp &&
+            (latestUpdatedAt == null ||
+                updatedAt.compareTo(latestUpdatedAt) > 0)) {
+          latestUpdatedAt = updatedAt;
+        }
+      }
+
+      if (filteredBalance != 0) {
+        filteredCustomers.add({
+          ...customer,
+          'balance': filteredBalance,
+          if (latestUpdatedAt != null) 'updatedAt': latestUpdatedAt,
+        });
+      }
+    }
+
+    return filteredCustomers;
+  }
+
+  String _readPaymentMode(Map<String, dynamic> data) {
+    final value = data['paymentMode'] ??
+        data['payment_mode'] ??
+        data['paymentType'] ??
+        data['payment_type'] ??
+        data['mode'] ??
+        data['type'];
+
+    final mode = value?.toString().trim().toLowerCase() ?? '';
+
+    if (mode.contains('cash')) return 'cash';
+    if (mode.contains('upi')) return 'upi';
+    if (mode.contains('card') || mode.contains('credit')) return 'card';
+
+    return mode;
+  }
+
+  bool _isUdharGivenType(String rawType) {
+    final type = rawType.trim().toLowerCase();
+    return type == 'given' ||
+        type == 'give' ||
+        type.contains('gave') ||
+        type.contains('given');
+  }
+
+  bool _isUdharReceivedType(String rawType) {
+    final type = rawType.trim().toLowerCase();
+    return type == 'taken' ||
+        type == 'received' ||
+        type == 'receive' ||
+        type.contains('taken') ||
+        type.contains('received') ||
+        type.contains('receive');
+  }
+
 
   Future<void> _handleHeaderExport(List<Map<String, dynamic>> customers) async {
     if (selectedSection == "Transactions") {
@@ -889,13 +1141,38 @@ class _ReportsPageState extends State<ReportsPage> {
   }
 
   Widget _viewChip(String value) {
-    return ChoiceChip(
-      label: Text(value, style: const TextStyle(fontSize: 12)),
-      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      visualDensity: VisualDensity.compact,
-      selected: widget.reportView == value,
-      onSelected: (_) => widget.onReportViewChanged(value),
+    final selected = widget.reportView == value;
+
+    return GestureDetector(
+      onTap: () => widget.onReportViewChanged(value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? _primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? Colors.transparent : Colors.white.withOpacity(0.16),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (selected) ...[
+              const Icon(Icons.check_rounded, color: Colors.white, size: 14),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              value,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

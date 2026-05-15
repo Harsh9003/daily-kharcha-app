@@ -167,11 +167,9 @@ class UdharDetailsPage extends StatelessWidget {
                     return const Center(child: CircularProgressIndicator());
                   }
 
-                  final txs = snapshot.data!.docs
-                      .map((e) => UdharTransactionModel.fromDoc(e))
-                      .toList();
+                  final txDocs = snapshot.data!.docs;
 
-                  if (txs.isEmpty) {
+                  if (txDocs.isEmpty) {
                     return Padding(
                       padding: const EdgeInsets.only(top: 50),
                       child: Center(
@@ -187,7 +185,10 @@ class UdharDetailsPage extends StatelessWidget {
                   }
 
                   return Column(
-                    children: txs.map((tx) {
+                    children: txDocs.map((doc) {
+                      final tx = UdharTransactionModel.fromDoc(doc);
+                      final txData = doc.data();
+                      final currentPaymentMode = (txData['paymentMode'] ?? 'Cash').toString();
                       final dt = tx.createdAt.toDate();
                       final color = tx.isGiven ? Colors.greenAccent : Colors.orangeAccent;
 
@@ -224,6 +225,7 @@ class UdharDetailsPage extends StatelessWidget {
                             context,
                             liveCustomer,
                             tx,
+                            currentPaymentMode,
                           ),
                           child: Container(
                             margin: const EdgeInsets.only(bottom: 9),
@@ -353,6 +355,7 @@ class UdharDetailsPage extends StatelessWidget {
     BuildContext context,
     UdharCustomerModel customer,
     UdharTransactionModel tx,
+    String currentPaymentMode,
   ) {
     final amountController = TextEditingController(
       text: tx.amount.toStringAsFixed(tx.amount % 1 == 0 ? 0 : 2),
@@ -360,6 +363,8 @@ class UdharDetailsPage extends StatelessWidget {
     final noteController = TextEditingController(text: tx.note);
 
     String selectedType = tx.type;
+    String selectedPaymentMode = currentPaymentMode.isNotEmpty ? currentPaymentMode : "Cash";
+    DateTime selectedDate = tx.createdAt.toDate();
     bool isSaving = false;
 
     final Color panelColor = isDark ? const Color(0xFF111322) : Colors.white;
@@ -605,6 +610,136 @@ class UdharDetailsPage extends StatelessWidget {
                                     ),
                                   ),
                                 ),
+                                const SizedBox(height: 14),
+
+                                Text(
+                                  'Transaction Date',
+                                  style: TextStyle(
+                                    color: subTextColor,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(17),
+                                  onTap: () async {
+                                    final pickedDate = await showDatePicker(
+                                      context: context,
+                                      initialDate: selectedDate,
+                                      firstDate: DateTime(2020),
+                                      lastDate: DateTime.now(),
+                                      builder: (context, child) {
+                                        return Theme(
+                                          data: Theme.of(context).copyWith(
+                                            colorScheme: ColorScheme.dark(
+                                              primary: const Color(0xFF6C4DFF),
+                                              onPrimary: Colors.white,
+                                              surface: panelColor,
+                                              onSurface: textColor,
+                                            ),
+                                            dialogBackgroundColor: panelColor,
+                                          ),
+                                          child: child!,
+                                        );
+                                      },
+                                    );
+
+                                    if (pickedDate != null) {
+                                      setDialogState(() {
+                                        selectedDate = DateTime(
+                                          pickedDate.year,
+                                          pickedDate.month,
+                                          pickedDate.day,
+                                          selectedDate.hour,
+                                          selectedDate.minute,
+                                          selectedDate.second,
+                                        );
+                                      });
+                                    }
+                                  },
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 14,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: fieldColor,
+                                      borderRadius: BorderRadius.circular(17),
+                                      border: Border.all(
+                                        color: const Color(0xFF6C4DFF).withOpacity(0.28),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.calendar_month_rounded,
+                                          color: Color(0xFF8D6BFF),
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            "${selectedDate.day.toString().padLeft(2, '0')}/${selectedDate.month.toString().padLeft(2, '0')}/${selectedDate.year}",
+                                            style: TextStyle(
+                                              color: textColor,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                        Icon(
+                                          Icons.keyboard_arrow_down_rounded,
+                                          color: subTextColor,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+
+                                Text(
+                                  'Payment Mode',
+                                  style: TextStyle(
+                                    color: subTextColor,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: fieldColor,
+                                    borderRadius: BorderRadius.circular(17),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      _editPaymentModeChip(
+                                        label: 'Cash',
+                                        icon: Icons.payments_rounded,
+                                        selected: selectedPaymentMode == 'Cash',
+                                        color: Colors.greenAccent,
+                                        onTap: () => setDialogState(() => selectedPaymentMode = 'Cash'),
+                                      ),
+                                      _editPaymentModeChip(
+                                        label: 'UPI',
+                                        icon: Icons.account_balance_wallet_rounded,
+                                        selected: selectedPaymentMode == 'UPI',
+                                        color: const Color(0xFF6C4DFF),
+                                        onTap: () => setDialogState(() => selectedPaymentMode = 'UPI'),
+                                      ),
+                                      _editPaymentModeChip(
+                                        label: 'Card',
+                                        icon: Icons.credit_card_rounded,
+                                        selected: selectedPaymentMode == 'Card',
+                                        color: Colors.orangeAccent,
+                                        onTap: () => setDialogState(() => selectedPaymentMode = 'Card'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                                 const SizedBox(height: 12),
 
                                 Container(
@@ -684,6 +819,17 @@ class UdharDetailsPage extends StatelessWidget {
                                                   note: noteController.text,
                                                 );
 
+                                                await UdharService.customersRef()
+                                                    .doc(customer.id)
+                                                    .collection('transactions')
+                                                    .doc(tx.id)
+                                                    .update({
+                                                  'paymentMode': selectedPaymentMode,
+                                                  'createdAt': Timestamp.fromDate(selectedDate),
+                                                  'selectedDate': Timestamp.fromDate(selectedDate),
+                                                  'updatedAt': FieldValue.serverTimestamp(),
+                                                });
+
                                                 if (dialogContext.mounted) {
                                                   Navigator.pop(dialogContext);
                                                 }
@@ -751,6 +897,57 @@ class UdharDetailsPage extends StatelessWidget {
       },
     );
   }
+
+
+  Widget _editPaymentModeChip({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    final Color inactiveColor = isDark ? Colors.white54 : Colors.black45;
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
+          decoration: BoxDecoration(
+            color: selected ? color.withOpacity(0.18) : Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? color.withOpacity(0.48) : Colors.transparent,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 17,
+                color: selected ? color : inactiveColor,
+              ),
+              const SizedBox(height: 5),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? color : inactiveColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
 
   Widget _editTypeChip({
     required String label,

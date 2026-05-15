@@ -701,34 +701,336 @@ class PdfService {
   }) async {
     final pdf = pw.Document();
 
+    final fontData = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+    final baseFont = pw.Font.ttf(fontData);
+
+    double amountOf(Map<String, dynamic> tx) {
+      final value = tx['amount'];
+      if (value is num) return value.toDouble();
+      return double.tryParse(value.toString()) ?? 0;
+    }
+
+    String modeOf(Map<String, dynamic> tx) {
+      final mode = (tx['paymentMode'] ?? tx['mode'] ?? 'Cash').toString();
+      if (mode.trim().isEmpty) return 'Cash';
+      return mode;
+    }
+
+    String typeOf(Map<String, dynamic> tx) {
+      return (tx['type'] ?? '').toString().toLowerCase().trim();
+    }
+
+    bool isReceiveTx(Map<String, dynamic> tx) {
+      final type = typeOf(tx);
+      return type == 'given' || type == 'give';
+    }
+
+    String displayType(Map<String, dynamic> tx) {
+      return isReceiveTx(tx) ? 'Receive' : 'Pay';
+    }
+
+    final totalReceive = transactions
+        .where(isReceiveTx)
+        .fold<double>(0, (sum, tx) => sum + amountOf(tx));
+
+    final totalPay = transactions
+        .where((tx) => !isReceiveTx(tx))
+        .fold<double>(0, (sum, tx) => sum + amountOf(tx));
+
+    pw.Widget statementSummaryCard({
+      required String title,
+      required String value,
+      required PdfColor background,
+      required PdfColor border,
+      required PdfColor accent,
+    }) {
+      return pw.Expanded(
+        child: pw.Container(
+          padding: const pw.EdgeInsets.all(14),
+          decoration: pw.BoxDecoration(
+            color: background,
+            borderRadius: pw.BorderRadius.circular(14),
+            border: pw.Border.all(color: border, width: 1),
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                title,
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                  color: accent,
+                ),
+              ),
+              pw.SizedBox(height: 7),
+              pw.Text(
+                value,
+                style: pw.TextStyle(
+                  fontSize: 18,
+                  fontWeight: pw.FontWeight.bold,
+                  color: accent,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    pw.Widget pillLabel(String text, PdfColor background, PdfColor color) {
+      return pw.Container(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: pw.BoxDecoration(
+          color: background,
+          borderRadius: pw.BorderRadius.circular(20),
+        ),
+        child: pw.Text(
+          text,
+          style: pw.TextStyle(
+            fontSize: 9,
+            fontWeight: pw.FontWeight.bold,
+            color: color,
+          ),
+        ),
+      );
+    }
+
+    pw.Widget tableHeader(String text) {
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+        child: pw.Text(
+          text,
+          style: pw.TextStyle(
+            color: PdfColors.white,
+            fontWeight: pw.FontWeight.bold,
+            fontSize: 10,
+          ),
+        ),
+      );
+    }
+
+    pw.Widget tableCell(String text, {PdfColor? color, bool bold = false}) {
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+        child: pw.Text(
+          text,
+          style: pw.TextStyle(
+            color: color ?? PdfColor.fromInt(0xFF111827),
+            fontSize: 9.5,
+            fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+          ),
+        ),
+      );
+    }
+
     pdf.addPage(
       pw.MultiPage(
+        pageTheme: pw.PageTheme(
+          margin: const pw.EdgeInsets.all(28),
+          theme: pw.ThemeData.withFont(
+            base: baseFont,
+            bold: baseFont,
+          ),
+        ),
         build: (context) => [
-          pw.Text(
-            'Udhar Statement',
-            style: pw.TextStyle(
-              fontSize: 24,
-              fontWeight: pw.FontWeight.bold,
+          pw.Container(
+            padding: const pw.EdgeInsets.all(20),
+            decoration: pw.BoxDecoration(
+              gradient: const pw.LinearGradient(
+                colors: [
+                  PdfColor.fromInt(0xFF6D5DF6),
+                  PdfColor.fromInt(0xFF8B5CF6),
+                ],
+              ),
+              borderRadius: pw.BorderRadius.circular(18),
+            ),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Udhar Statement',
+                      style: pw.TextStyle(
+                        color: PdfColors.white,
+                        fontSize: 24,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 10),
+                    pw.Text(
+                      customerName,
+                      style: pw.TextStyle(
+                        color: PdfColors.white,
+                        fontSize: 13,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 3),
+                    pw.Text(
+                      phone.isEmpty ? 'No phone number' : phone,
+                      style: const pw.TextStyle(
+                        color: PdfColors.white,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.white,
+                    borderRadius: pw.BorderRadius.circular(12),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'Net Balance',
+                        style: const pw.TextStyle(
+                          fontSize: 9,
+                          color: PdfColors.grey700,
+                        ),
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.Text(
+                        '₹ ${balance.abs().toStringAsFixed(0)}',
+                        style: pw.TextStyle(
+                          fontSize: 15,
+                          fontWeight: pw.FontWeight.bold,
+                          color: balance >= 0
+                              ? PdfColor.fromInt(0xFF059669)
+                              : PdfColor.fromInt(0xFFF97316),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
 
-          pw.SizedBox(height: 20),
+          pw.SizedBox(height: 18),
 
-          pw.Text('Customer: $customerName'),
-          pw.Text('Phone: $phone'),
-          pw.Text('Balance: ₹ ${balance.toStringAsFixed(0)}'),
+          pw.Row(
+            children: [
+              statementSummaryCard(
+                title: 'You Will Receive',
+                value: '₹ ${totalReceive.toStringAsFixed(0)}',
+                background: PdfColor.fromInt(0xFFECFDF5),
+                border: PdfColor.fromInt(0xFF10B981),
+                accent: PdfColor.fromInt(0xFF059669),
+              ),
+              pw.SizedBox(width: 12),
+              statementSummaryCard(
+                title: 'You Need To Pay',
+                value: '₹ ${totalPay.toStringAsFixed(0)}',
+                background: PdfColor.fromInt(0xFFFFF7ED),
+                border: PdfColor.fromInt(0xFFF97316),
+                accent: PdfColor.fromInt(0xFFEA580C),
+              ),
+            ],
+          ),
 
-          pw.SizedBox(height: 20),
+          pw.SizedBox(height: 22),
 
-          pw.Table.fromTextArray(
-            headers: ['Type', 'Amount', 'Note'],
-            data: transactions.map((tx) {
-              return [
-                tx['type'].toString(),
-                '₹ ${tx['amount']}',
-                tx['note'].toString(),
-              ];
-            }).toList(),
+          pw.Text(
+            'Transaction History',
+            style: pw.TextStyle(
+              fontSize: 17,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColor.fromInt(0xFF111827),
+            ),
+          ),
+
+          pw.SizedBox(height: 10),
+
+          pw.Table(
+            border: pw.TableBorder.all(
+              color: PdfColor.fromInt(0xFFE5E7EB),
+              width: 0.8,
+            ),
+            columnWidths: {
+              0: const pw.FlexColumnWidth(1.1),
+              1: const pw.FlexColumnWidth(1.0),
+              2: const pw.FlexColumnWidth(1.2),
+              3: const pw.FlexColumnWidth(2.5),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(
+                  color: PdfColor.fromInt(0xFF111827),
+                ),
+                children: [
+                  tableHeader('Type'),
+                  tableHeader('Mode'),
+                  tableHeader('Amount'),
+                  tableHeader('Note'),
+                ],
+              ),
+              if (transactions.isEmpty)
+                pw.TableRow(
+                  children: [
+                    tableCell('-'),
+                    tableCell('-'),
+                    tableCell('-'),
+                    tableCell('No transactions found'),
+                  ],
+                )
+              else
+                ...transactions.map((tx) {
+                  final receive = isReceiveTx(tx);
+                  final accent = receive
+                      ? PdfColor.fromInt(0xFF059669)
+                      : PdfColor.fromInt(0xFFEA580C);
+
+                  return pw.TableRow(
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.white,
+                    ),
+                    children: [
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 7,
+                        ),
+                        child: pillLabel(
+                          displayType(tx),
+                          receive
+                              ? PdfColor.fromInt(0xFFDCFCE7)
+                              : PdfColor.fromInt(0xFFFFEDD5),
+                          accent,
+                        ),
+                      ),
+                      tableCell(modeOf(tx)),
+                      tableCell(
+                        '₹ ${amountOf(tx).toStringAsFixed(0)}',
+                        color: accent,
+                        bold: true,
+                      ),
+                      tableCell((tx['note'] ?? '-').toString()),
+                    ],
+                  );
+                }).toList(),
+            ],
+          ),
+
+          pw.SizedBox(height: 28),
+
+          pw.Center(
+            child: pw.Text(
+              'Generated by Daily Kharcha',
+              style: const pw.TextStyle(
+                fontSize: 9,
+                color: PdfColors.grey600,
+              ),
+            ),
           ),
         ],
       ),
@@ -739,4 +1041,5 @@ class PdfService {
       filename: 'udhar_statement.pdf',
     );
   }
+
 }

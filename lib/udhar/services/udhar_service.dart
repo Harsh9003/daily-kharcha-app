@@ -29,6 +29,7 @@ class UdharService {
     required String type, // given / taken
     required double amount,
     required String note,
+    DateTime? transactionDate,
   }) async {
     final cleanName = name.trim();
     final cleanPhone = phone.trim();
@@ -42,6 +43,7 @@ class UdharService {
         .get();
 
     final double balanceChange = type == 'given' ? amount : -amount;
+    final DateTime finalTransactionDate = transactionDate ?? DateTime.now();
 
     if (existing.docs.isEmpty) {
       final customerDoc = customersRef().doc();
@@ -59,7 +61,8 @@ class UdharService {
         'type': type,
         'amount': amount,
         'note': note.trim(),
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': Timestamp.fromDate(finalTransactionDate),
+        'selectedDate': Timestamp.fromDate(finalTransactionDate),
       });
     } else {
       final customerDoc = existing.docs.first.reference;
@@ -74,7 +77,8 @@ class UdharService {
         'type': type,
         'amount': amount,
         'note': note.trim(),
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': Timestamp.fromDate(finalTransactionDate),
+        'selectedDate': Timestamp.fromDate(finalTransactionDate),
       });
     }
   }
@@ -83,12 +87,14 @@ class UdharService {
     required String type, // given / taken
     required double amount,
     required String note,
+    DateTime? transactionDate,
   }) async {
     if (amount <= 0) return;
 
     final customerDoc = customersRef().doc(customerId);
 
     final double balanceChange = type == 'given' ? amount : -amount;
+    final DateTime finalTransactionDate = transactionDate ?? DateTime.now();
 
     await customerDoc.update({
       'balance': FieldValue.increment(balanceChange),
@@ -99,7 +105,8 @@ class UdharService {
       'type': type,
       'amount': amount,
       'note': note.trim(),
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': Timestamp.fromDate(finalTransactionDate),
+      'selectedDate': Timestamp.fromDate(finalTransactionDate),
     });
   }
 

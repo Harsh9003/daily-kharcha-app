@@ -1151,36 +1151,58 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> loadUserCategoriesFromFirestore() async {
-    if (userId == null) return;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
 
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(userId)
-        .get();
+      if (user == null) return;
 
-    final data = doc.data();
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
 
-    if (data != null && data['categories'] != null) {
-      final List savedCategories = data['categories'];
+      final data = doc.data();
 
-      categories = savedCategories.map((e) => e.toString()).toList();
+      final Set<String> mergedCategories = {
+        'Food',
+        'Travel',
+        'Shopping',
+        'Petrol',
+      };
 
-      if (data['categoryColors'] != null) {
-        final colorData = Map<String, dynamic>.from(data['categoryColors']);
+      if (data != null && data['categories'] != null) {
+        final List savedCategories = data['categories'];
+        mergedCategories.addAll(savedCategories.map((e) => e.toString()));
+      }
 
-        categoryColors = colorData.map(
-          (key, value) => MapEntry(key, Color(value as int)),
+      if (data != null && data['categoryColors'] != null) {
+        final Map savedColors = data['categoryColors'];
+
+        mergedCategories.addAll(savedColors.keys.map((e) => e.toString()));
+
+        categoryColors = savedColors.map(
+          (key, value) => MapEntry(
+            key.toString(),
+            Color(value is int ? value : int.tryParse(value.toString()) ?? 0xFF009688),
+          ),
         );
       }
+
+      categories = mergedCategories.toList();
 
       for (final category in categories) {
         categoryColors.putIfAbsent(category, () => Colors.teal);
       }
-    } else {
-      await saveUserCategoriesToFirestore();
+
+      if (mounted) {
+        setState(() {});
+      }
+
+      print("FINAL MERGED CATEGORIES: $categories");
+    } catch (e) {
+      print("CATEGORY FETCH ERROR: $e");
     }
   }
-
   Future<void> deleteTransaction(Map<String, dynamic> tx) async {
     final oldTransactions = List<Map<String, dynamic>>.from(transactions);
 
@@ -2958,7 +2980,11 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icons.category_rounded,
             title: "Total Categories",
             value: "${categories.length}",
-            onTap: () {
+            onTap: () async {
+              await loadUserCategoriesFromFirestore();
+
+              setState(() {});
+
               showPremiumSnackBar(
                 message: "Category manager opened",
                 icon: Icons.category_rounded,
@@ -3120,7 +3146,7 @@ class _MainScreenState extends State<MainScreen> {
 
                             if (newCategory.isEmpty) {
                               showParentMessage(
-                                "Category name enter karo",
+                                "Enter category name",
                                 Icons.info_rounded,
                                 Colors.orangeAccent,
                               );
